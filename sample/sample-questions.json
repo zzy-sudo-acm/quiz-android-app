@@ -1,0 +1,76 @@
+[
+  {
+    "id": 1,
+    "type": "single",
+    "question": "下列哪一个命令可以修改设备名字为huawei?",
+    "options": [
+      {"key": "A", "text": "rename huawei"},
+      {"key": "B", "text": "sysname huawei"},
+      {"key": "C", "text": "do name huawei"},
+      {"key": "D", "text": "hostname huawei"}
+    ],
+    "answer": ["B"],
+    "knowledge": "VRP基础"
+  },
+  {
+    "id": 2,
+    "type": "single",
+    "question": "ARP协议有何作用?",
+    "options": [
+      {"key": "A", "text": "将计算机的MAC地址解析成IP地址"},
+      {"key": "B", "text": "域名解析"},
+      {"key": "C", "text": "可靠传输"},
+      {"key": "D", "text": "将IP地址解析成MAC地址"}
+    ],
+    "answer": ["D"],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 3,
+    "type": "multiple",
+    "question": "IPv4报文发送方式包括哪三种?",
+    "options": [
+      {"key": "A", "text": "单播"},
+      {"key": "B", "text": "组播"},
+      {"key": "C", "text": "广播"},
+      {"key": "D", "text": "任播"}
+    ],
+    "answer": ["A", "B", "C"],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 4,
+    "type": "multiple",
+    "question": "OSPF协议在以下哪种网络类型中需要选举DR和BDR？",
+    "options": [
+      {"key": "A", "text": "点到点类型"},
+      {"key": "B", "text": "广播类型"},
+      {"key": "C", "text": "NBMA"},
+      {"key": "D", "text": "点到多点"}
+    ],
+    "answer": ["B", "C"],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 5,
+    "type": "judge",
+    "question": "Telnet基于TCP协议。",
+    "options": [
+      {"key": "A", "text": "对"},
+      {"key": "B", "text": "错"}
+    ],
+    "answer": ["A"],
+    "knowledge": "TCP/IP、网络服务"
+  },
+  {
+    "id": 6,
+    "type": "judge",
+    "question": "如果传输层协议为UDP，则网络层Protocol字段取值为6。",
+    "options": [
+      {"key": "A", "text": "对"},
+      {"key": "B", "text": "错"}
+    ],
+    "answer": ["B"],
+    "knowledge": "TCP/IP"
+  }
+]
