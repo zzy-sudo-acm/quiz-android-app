@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 深色外框 -->
+    <path
+        android:fillColor="#1A1B26"
+        android:pathData="M0,0h108v108h-108z" />
+
+    <!-- 熔炉橙色圆角面板 -->
+    <path
+        android:fillColor="#E07A2C"
+        android:pathData="M22,18h64a10,10 0,0 1,10 10v52a10,10 0,0 1,-10 10h-64a10,10 0,0 1,-10 -10v-52a10,10 0,0 1,10 -10z" />
+
+    <!-- 火焰外层（亮黄） -->
+    <path
+        android:fillColor="#FFD93D"
+        android:pathData="M54,26 C 46,38 41,44 41,53 C 41,62 47,68 54,68 C 61,68 67,62 67,53 C 67,44 62,38 54,26 Z" />
+
+    <!-- 火焰核心（暖白） -->
+    <path
+        android:fillColor="#FFF5C2"
+        android:pathData="M54,40 C 50,46 48,50 48,55 C 48,60 51,63 54,63 C 57,63 60,60 60,55 C 60,50 58,46 54,40 Z" />
+
+    <!-- 铁砧顶板 -->
+    <path
+        android:fillColor="#1A1B26"
+        android:pathData="M18,70 h72 v6 h-72 z" />
+
+    <!-- 铁砧右侧锥角 -->
+    <path
+        android:fillColor="#1A1B26"
+        android:pathData="M90,71 L 96,72 L 92,76 L 90,75 Z" />
+
+    <!-- 铁砧底座（梯形） -->
+    <path
+        android:fillColor="#1A1B26"
+        android:pathData="M28,76 L 80,76 L 76,90 L 32,90 Z" />
+
+</vector>

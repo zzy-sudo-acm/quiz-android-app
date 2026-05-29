@@ -1,0 +1,27 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+_reference/
+*.jks
+*.keystore
+*.env
+*.zip
+
+# Web reference project files (root level only)
+/app.js
+/convert-report.md
+/icon.svg
+/index.html
+/manifest.json
+/parse_docx.py
+/parse_errors.txt
+/questions.json
+/quiz-android-requirements.md
+/service-worker.js
+/style.css
+/scripts/
+/assets/
+/*.docx

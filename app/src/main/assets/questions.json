@@ -1,0 +1,2831 @@
+[
+  {
+    "id": 1,
+    "type": "single",
+    "question": "下列哪一个命令可以修改设备名字为huawei?",
+    "options": [
+      {
+        "key": "A",
+        "text": "rename huawei"
+      },
+      {
+        "key": "B",
+        "text": "sysname huawei"
+      },
+      {
+        "key": "C",
+        "text": "do name huawei"
+      },
+      {
+        "key": "D",
+        "text": "hostname huawei"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "VRP基础"
+  },
+  {
+    "id": 2,
+    "type": "single",
+    "question": "VRP操作系统命令划分为访问级、监控级、配置级、管理级4个级别。能运行各种业务配置命令但不能操作文件系统的哪一级？",
+    "options": [
+      {
+        "key": "A",
+        "text": "访问级"
+      },
+      {
+        "key": "B",
+        "text": "监控级"
+      },
+      {
+        "key": "C",
+        "text": "配置级"
+      },
+      {
+        "key": "D",
+        "text": "管理级"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "VRP基础"
+  },
+  {
+    "id": 3,
+    "type": "single",
+    "question": "如果应用层协议为Telnet，那么IPv4首部中Protocol字段取值为？",
+    "options": [
+      {
+        "key": "A",
+        "text": "17"
+      },
+      {
+        "key": "B",
+        "text": "21"
+      },
+      {
+        "key": "C",
+        "text": "22"
+      },
+      {
+        "key": "D",
+        "text": "6"
+      }
+    ],
+    "answer": [
+      "D"
+    ],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 4,
+    "type": "single",
+    "question": "某公司网络管理员希望能够远程管理分支机构的网络设备，则下面哪个协议会被用到？",
+    "options": [
+      {
+        "key": "A",
+        "text": "VLSM"
+      },
+      {
+        "key": "B",
+        "text": "Telnet"
+      },
+      {
+        "key": "C",
+        "text": "CIDR"
+      },
+      {
+        "key": "D",
+        "text": "OSPF"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 5,
+    "type": "single",
+    "question": "VRP系统登录方式不包括下列哪一项？",
+    "options": [
+      {
+        "key": "A",
+        "text": "Telnet"
+      },
+      {
+        "key": "B",
+        "text": "SSH"
+      },
+      {
+        "key": "C",
+        "text": "Web"
+      },
+      {
+        "key": "D",
+        "text": "Netstream"
+      }
+    ],
+    "answer": [
+      "D"
+    ],
+    "knowledge": "VRP基础"
+  },
+  {
+    "id": 6,
+    "type": "single",
+    "question": "ARP协议有何作用?( )",
+    "options": [
+      {
+        "key": "A",
+        "text": "将计算机的MAC地址解析成IP地址"
+      },
+      {
+        "key": "B",
+        "text": "域名解析"
+      },
+      {
+        "key": "C",
+        "text": "可靠传输"
+      },
+      {
+        "key": "D",
+        "text": "将IP地址解析成MAC地址"
+      }
+    ],
+    "answer": [
+      "D"
+    ],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 7,
+    "type": "single",
+    "question": "在Windows中，ping命令使用的协议是( )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "HTTP"
+      },
+      {
+        "key": "B",
+        "text": "IGMP"
+      },
+      {
+        "key": "C",
+        "text": "TCP"
+      },
+      {
+        "key": "D",
+        "text": "ICMP"
+      }
+    ],
+    "answer": [
+      "D"
+    ],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 8,
+    "type": "single",
+    "question": "给路由器接口配置IP地址，下面哪条命令是错误的?( )",
+    "options": [
+      {
+        "key": "A",
+        "text": "[R1]ip address 192.168.1.1 255.255.255.0"
+      },
+      {
+        "key": "B",
+        "text": "[R1-GigabitEthernet0/0/0]ip address 192.168.1.1 24"
+      },
+      {
+        "key": "C",
+        "text": "[R1-GigabitEthernet0/0/0]ip add 192.168.1.1 24"
+      },
+      {
+        "key": "D",
+        "text": "[R1-GigabitEthernet0/0/0]ip address 192.168.1.1 255.255.255.0"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "VRP基础"
+  },
+  {
+    "id": 9,
+    "type": "single",
+    "question": "某公司新购入一台网络设备，作为网络管理员，初次配置该设备通常通过什么方式?",
+    "options": [
+      {
+        "key": "A",
+        "text": "FTP"
+      },
+      {
+        "key": "B",
+        "text": "Telnet"
+      },
+      {
+        "key": "C",
+        "text": "SNMP"
+      },
+      {
+        "key": "D",
+        "text": "Console口登录"
+      }
+    ],
+    "answer": [
+      "D"
+    ],
+    "knowledge": "VRP基础"
+  },
+  {
+    "id": 10,
+    "type": "single",
+    "question": "应用数据经过网路层处理后称为（ ）？",
+    "options": [
+      {
+        "key": "A",
+        "text": "Segment"
+      },
+      {
+        "key": "B",
+        "text": "PDU"
+      },
+      {
+        "key": "C",
+        "text": "Packet"
+      },
+      {
+        "key": "D",
+        "text": "Frame"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 11,
+    "type": "single",
+    "question": "计算机通信实现可靠传输的是TCP/IPv4协议栈的哪一层?( )",
+    "options": [
+      {
+        "key": "A",
+        "text": "物理层"
+      },
+      {
+        "key": "B",
+        "text": "应用层"
+      },
+      {
+        "key": "C",
+        "text": "传输层"
+      },
+      {
+        "key": "D",
+        "text": "网络层"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 12,
+    "type": "single",
+    "question": "某公司网络管理员希望能够远程管理分支机构的网络设备，则下面哪个协议会被用到？",
+    "options": [
+      {
+        "key": "A",
+        "text": "VLSM"
+      },
+      {
+        "key": "B",
+        "text": "Telnet"
+      },
+      {
+        "key": "C",
+        "text": "RSTP"
+      },
+      {
+        "key": "D",
+        "text": "CIDR"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 13,
+    "type": "multiple",
+    "question": "VRP操作平台存在哪些命令行视图？",
+    "options": [
+      {
+        "key": "A",
+        "text": "接口视图"
+      },
+      {
+        "key": "B",
+        "text": "用户视图"
+      },
+      {
+        "key": "C",
+        "text": "路由协议视图"
+      },
+      {
+        "key": "D",
+        "text": "全局视图"
+      }
+    ],
+    "answer": [
+      "A",
+      "B",
+      "C"
+    ],
+    "knowledge": "VRP基础"
+  },
+  {
+    "id": 14,
+    "type": "multiple",
+    "question": "网络管理员使用Ping能来测试网络的连通性，在这个过程中下面哪些协议可能会被使用到？",
+    "options": [
+      {
+        "key": "A",
+        "text": "ARP"
+      },
+      {
+        "key": "B",
+        "text": "TCP"
+      },
+      {
+        "key": "C",
+        "text": "UDP"
+      },
+      {
+        "key": "D",
+        "text": "ICMP"
+      }
+    ],
+    "answer": [
+      "A",
+      "D"
+    ],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 15,
+    "type": "multiple",
+    "question": "IPv4报文发送方式包括哪三种?",
+    "options": [
+      {
+        "key": "A",
+        "text": "单播"
+      },
+      {
+        "key": "B",
+        "text": "组播"
+      },
+      {
+        "key": "C",
+        "text": "广播"
+      },
+      {
+        "key": "D",
+        "text": "任播"
+      }
+    ],
+    "answer": [
+      "A",
+      "B",
+      "C"
+    ],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 16,
+    "type": "judge",
+    "question": "Telnet基于TCP协议。",
+    "options": [
+      {
+        "key": "A",
+        "text": "对"
+      },
+      {
+        "key": "B",
+        "text": "错"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "TCP/IP、网络服务"
+  },
+  {
+    "id": 17,
+    "type": "judge",
+    "question": "如果传输层协议为UDP，则网络层Protocol字段取值为6。",
+    "options": [
+      {
+        "key": "A",
+        "text": "对"
+      },
+      {
+        "key": "B",
+        "text": "错"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 18,
+    "type": "judge",
+    "question": "ARP协议能够根据目的IP地址解析目标设备MAC地址，从而实现链路层地址与IP地址的映射。",
+    "options": [
+      {
+        "key": "A",
+        "text": "对"
+      },
+      {
+        "key": "B",
+        "text": "错"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "TCP/IP"
+  },
+  {
+    "id": 19,
+    "type": "judge",
+    "question": "由于TCP协议在建立连接和关闭连接时都采用三次握手机制，所以TCP支持可靠传输。",
+    "options": [
+      {
+        "key": "A",
+        "text": "对"
+      },
+      {
+        "key": "B",
+        "text": "错"
+      }
+    ],
+    "answer": [
+      "B"
+    ]
+  },
+  {
+    "id": 20,
+    "type": "single",
+    "question": "OSPF协议封装在以下哪种数据包内？",
+    "options": [
+      {
+        "key": "A",
+        "text": "IP"
+      },
+      {
+        "key": "B",
+        "text": "HTTP"
+      },
+      {
+        "key": "C",
+        "text": "TCP"
+      },
+      {
+        "key": "D",
+        "text": "UDP"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 21,
+    "type": "single",
+    "question": "以下哪个命令可以查看OSPF是否已经正确建立邻居关系？",
+    "options": [
+      {
+        "key": "A",
+        "text": "display ospf neighbor"
+      },
+      {
+        "key": "B",
+        "text": "display ospf brief"
+      },
+      {
+        "key": "C",
+        "text": "display ospf peer"
+      },
+      {
+        "key": "D",
+        "text": "display ospf interface"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 22,
+    "type": "single",
+    "question": "OSPF的邻接关系建立后的状态为？",
+    "options": [
+      {
+        "key": "A",
+        "text": "Loading"
+      },
+      {
+        "key": "B",
+        "text": "Two-way"
+      },
+      {
+        "key": "C",
+        "text": "Full"
+      },
+      {
+        "key": "D",
+        "text": "Exchange"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 23,
+    "type": "single",
+    "question": "缺省情况下，在以太网链路上发送OSPF HELLO报文的周期为多少秒？",
+    "options": [
+      {
+        "key": "A",
+        "text": "10"
+      },
+      {
+        "key": "B",
+        "text": "20"
+      },
+      {
+        "key": "C",
+        "text": "30"
+      },
+      {
+        "key": "D",
+        "text": "40"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 24,
+    "type": "single",
+    "question": "如下图所示的网络，所有路由器运行OSPF协议，链路上方为Cost值的大小，则RA到达网络10.0.0.0／8的路径为？",
+    "options": [
+      {
+        "key": "A",
+        "text": "A-B-D"
+      },
+      {
+        "key": "B",
+        "text": "A-D"
+      },
+      {
+        "key": "C",
+        "text": "A-C-D"
+      },
+      {
+        "key": "D",
+        "text": "RouterA无法到达10.0.0.0/8"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "OSPF",
+    "image": "assets/question-images/network_024.png"
+  },
+  {
+    "id": 25,
+    "type": "single",
+    "question": "OSPF协议在进行主从关系选举时依据以下哪个参数？",
+    "options": [
+      {
+        "key": "A",
+        "text": "OSPF协议的进程号"
+      },
+      {
+        "key": "B",
+        "text": "Router ID"
+      },
+      {
+        "key": "C",
+        "text": "启动协议的顺序"
+      },
+      {
+        "key": "D",
+        "text": "接口IP地址"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 26,
+    "type": "single",
+    "question": "OSPF协议用哪种报文来描述自己的LSDB?",
+    "options": [
+      {
+        "key": "A",
+        "text": "LSR"
+      },
+      {
+        "key": "B",
+        "text": "HELLO"
+      },
+      {
+        "key": "C",
+        "text": "DD"
+      },
+      {
+        "key": "D",
+        "text": "LSU"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 27,
+    "type": "single",
+    "question": "如下图所示的网络，所有路由器运行OSPF协议，链路上方为Cost值的大小，则RA到达网络10.0.0.0/8的路径为？",
+    "options": [
+      {
+        "key": "A",
+        "text": "RouterA-->RouterD"
+      },
+      {
+        "key": "B",
+        "text": "RouterA-->RouterB-->RouterD"
+      },
+      {
+        "key": "C",
+        "text": "RouterA-->RouterC-->RouterD"
+      },
+      {
+        "key": "D",
+        "text": "在三条路径负载均衡"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "OSPF",
+    "image": "assets/question-images/network_027.png"
+  },
+  {
+    "id": 28,
+    "type": "single",
+    "question": "管理员发现两台路由器在建立OSPF邻居时，停留在TWO-WAY状态，则下面描述正确的是（ ）。",
+    "options": [
+      {
+        "key": "A",
+        "text": "路由器配置了相同的区域ID"
+      },
+      {
+        "key": "B",
+        "text": "两台路由器是广播型网络中的DR Other路由器"
+      },
+      {
+        "key": "C",
+        "text": "路由器配置了错误的Router ID"
+      },
+      {
+        "key": "D",
+        "text": "路由器配置了相同的进程ID"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 29,
+    "type": "single",
+    "question": "OSPF的邻居关系建立后的状态为？",
+    "options": [
+      {
+        "key": "A",
+        "text": "two-way"
+      },
+      {
+        "key": "B",
+        "text": "exchange"
+      },
+      {
+        "key": "C",
+        "text": "loading"
+      },
+      {
+        "key": "D",
+        "text": "full"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 30,
+    "type": "single",
+    "question": "*OSPF协议报文使用什么协议封装？",
+    "options": [
+      {
+        "key": "A",
+        "text": "IP"
+      },
+      {
+        "key": "B",
+        "text": "TCP"
+      },
+      {
+        "key": "C",
+        "text": "UDP"
+      },
+      {
+        "key": "D",
+        "text": "HTTP"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 31,
+    "type": "single",
+    "question": "OSPF协议的HELLO报文中不包含以下哪个字段？",
+    "options": [
+      {
+        "key": "A",
+        "text": "Neighbor"
+      },
+      {
+        "key": "B",
+        "text": "LSA"
+      },
+      {
+        "key": "C",
+        "text": "Hello Interval"
+      },
+      {
+        "key": "D",
+        "text": "Network Mask"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 32,
+    "type": "single",
+    "question": "VRP支持OSPF多进程，如果在启用OSPF时不指定进程号，则默认使用的进程号为",
+    "options": [
+      {
+        "key": "A",
+        "text": "0"
+      },
+      {
+        "key": "B",
+        "text": "1"
+      },
+      {
+        "key": "C",
+        "text": "100"
+      },
+      {
+        "key": "D",
+        "text": "65535"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 33,
+    "type": "single",
+    "question": "两台路由器运行在PPP链路上，管理员在两台路由器上配置了OSPF单区域，且它们的Router ID相同，则下面描述正确的是：（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "两台路由器将建立正常的完全邻居关系"
+      },
+      {
+        "key": "B",
+        "text": "VRP会提示两台路由器的Router ID冲突"
+      },
+      {
+        "key": "C",
+        "text": "两台路由器将会建立正常的完全邻接关系"
+      },
+      {
+        "key": "D",
+        "text": "两台路由器将不会互相发送hello信息"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 34,
+    "type": "single",
+    "question": "以下关于OSPF协议的描述中，最准确的是( )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "OSPF协议根据链路状态法计算最佳路由"
+      },
+      {
+        "key": "B",
+        "text": "OSPF协议是用于自治系统之间的外部网关协议"
+      },
+      {
+        "key": "C",
+        "text": "OSPF协议不能根据网络通信情况动态改变路由"
+      },
+      {
+        "key": "D",
+        "text": "OSPF协议只能适用于小型网络"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 35,
+    "type": "multiple",
+    "question": "查询设备OSPF协议的配置信息，可以使用下列哪些命令？",
+    "options": [
+      {
+        "key": "A",
+        "text": "display ip routing-table"
+      },
+      {
+        "key": "B",
+        "text": "display current-configuration"
+      },
+      {
+        "key": "C",
+        "text": "display ospf peer"
+      },
+      {
+        "key": "D",
+        "text": "在OSPF协议视图下：display this"
+      }
+    ],
+    "answer": [
+      "B",
+      "D"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 36,
+    "type": "multiple",
+    "question": "OSPF协议在以下哪种网络类型中需要选举DR和BDR？",
+    "options": [
+      {
+        "key": "A",
+        "text": "点到点类型"
+      },
+      {
+        "key": "B",
+        "text": "广播类型"
+      },
+      {
+        "key": "C",
+        "text": "NBMA"
+      },
+      {
+        "key": "D",
+        "text": "点到多点"
+      }
+    ],
+    "answer": [
+      "B",
+      "C"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 37,
+    "type": "multiple",
+    "question": "在OSPF协议中，下面对DR的描述中正确的是（）。",
+    "options": [
+      {
+        "key": "A",
+        "text": "DR和BDR之间也要建立邻接关系"
+      },
+      {
+        "key": "B",
+        "text": "若两台路由器的优先级值相等，则选择RouterlD大的路由器作为DR"
+      },
+      {
+        "key": "C",
+        "text": "若两台路由器的优先级值不同，则选择优先级值较小的路由器作为DR"
+      },
+      {
+        "key": "D",
+        "text": "默认情况下，本广播网络中所有的路由器都将参与DR选举"
+      }
+    ],
+    "answer": [
+      "A",
+      "B",
+      "D"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 38,
+    "type": "multiple",
+    "question": "*在一台路由器上配置OSPF时，必须手动进行的配置有（ )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "开启OSPF进程"
+      },
+      {
+        "key": "B",
+        "text": "创建OSPF区域"
+      },
+      {
+        "key": "C",
+        "text": "配置Router ID"
+      },
+      {
+        "key": "D",
+        "text": "指定每个区域中所包含的网络"
+      }
+    ],
+    "answer": [
+      "A",
+      "B",
+      "D"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 39,
+    "type": "multiple",
+    "question": "OSPF协议邻居和邻接关系建立过程中，有哪几种稳定状态？",
+    "options": [
+      {
+        "key": "A",
+        "text": "Down"
+      },
+      {
+        "key": "B",
+        "text": "Two-way"
+      },
+      {
+        "key": "C",
+        "text": "Loading"
+      },
+      {
+        "key": "D",
+        "text": "Full"
+      }
+    ],
+    "answer": [
+      "B",
+      "D"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 40,
+    "type": "multiple",
+    "question": "在一台路由器上配置OSPF，必须手动进行的配置有( ) 。",
+    "options": [
+      {
+        "key": "A",
+        "text": "配置Router-ID"
+      },
+      {
+        "key": "B",
+        "text": "开启OSPF进程"
+      },
+      {
+        "key": "C",
+        "text": "创建OSPF区域"
+      },
+      {
+        "key": "D",
+        "text": "指定每个区域中包含的网段"
+      }
+    ],
+    "answer": [
+      "B",
+      "C",
+      "D"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 41,
+    "type": "judge",
+    "question": "OSPF进程的Router ID修改之后立即生效。",
+    "options": [
+      {
+        "key": "A",
+        "text": "对"
+      },
+      {
+        "key": "B",
+        "text": "错"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 42,
+    "type": "judge",
+    "question": "运行OSPF协议的路由器所有接口必须属于同一个区域。",
+    "options": [
+      {
+        "key": "A",
+        "text": "对"
+      },
+      {
+        "key": "B",
+        "text": "错"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "OSPF"
+  },
+  {
+    "id": 43,
+    "type": "judge",
+    "question": "骨干区域内的路由器有它所有区域的全部LSDB。",
+    "options": [
+      {
+        "key": "A",
+        "text": "对"
+      },
+      {
+        "key": "B",
+        "text": "错"
+      }
+    ],
+    "answer": [
+      "B"
+    ]
+  },
+  {
+    "id": 44,
+    "type": "single",
+    "question": "下列关于Trunk端口与Access端口描述正确的是（）。",
+    "options": [
+      {
+        "key": "A",
+        "text": "Trunk端口只能发送tagged帧"
+      },
+      {
+        "key": "B",
+        "text": "Trunk端口只能发送untagged帧"
+      },
+      {
+        "key": "C",
+        "text": "Access端口只能发送tagged帧"
+      },
+      {
+        "key": "D",
+        "text": "Access端口只能发送untagged帧"
+      }
+    ],
+    "answer": [
+      "D"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 45,
+    "type": "single",
+    "question": "*交换机G0／0／1端口配置信息如下，交换机在转发哪个VLAN数据帧时不携带VLAN TAG？ interface GigabitEthernet0/0/1 port link-type trunk port trunk pvid vlan 10 port trunk allow-pass vlan 10 20 30 40",
+    "options": [
+      {
+        "key": "A",
+        "text": "10"
+      },
+      {
+        "key": "B",
+        "text": "20"
+      },
+      {
+        "key": "C",
+        "text": "30"
+      },
+      {
+        "key": "D",
+        "text": "40"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 46,
+    "type": "single",
+    "question": "某公司网络管理员想要把经常变换办公位置而导致经常会从不同的交换机接入公司网络的用户统一划分到VLAN10，则应该采用下列哪种方式来划分VLAN?",
+    "options": [
+      {
+        "key": "A",
+        "text": "基于协议划分VLAN"
+      },
+      {
+        "key": "B",
+        "text": "基于MAC地址划分VLAN"
+      },
+      {
+        "key": "C",
+        "text": "基于端口划分VLAN"
+      },
+      {
+        "key": "D",
+        "text": "基于子网划分VLAN"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 47,
+    "type": "single",
+    "question": "*下列关于Trunk端口与Access端口描述正确的是（）。",
+    "options": [
+      {
+        "key": "A",
+        "text": "Trunk端口只能发送tagged帧"
+      },
+      {
+        "key": "B",
+        "text": "Trunk端口只能发送untagged贞"
+      },
+      {
+        "key": "C",
+        "text": "Access端口只能发送tagged帧"
+      },
+      {
+        "key": "D",
+        "text": "Access端口只能发送untagged帧"
+      }
+    ],
+    "answer": [
+      "D"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 48,
+    "type": "single",
+    "question": "交换机某个端口配置信息如下，则此端口发送携带哪个VLAN TAG的数据帧时会剥离VLAN TAG? interface g0/0/1 port link-type trunk port trunk pvid vlan 10 port trunk allow-pass vlan 10 20 30 40",
+    "options": [
+      {
+        "key": "A",
+        "text": "10"
+      },
+      {
+        "key": "B",
+        "text": "20"
+      },
+      {
+        "key": "C",
+        "text": "30"
+      },
+      {
+        "key": "D",
+        "text": "40"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 49,
+    "type": "single",
+    "question": "交换机某个端口配置信息如下，则此端口在发送携带哪些VLAN的数据帧时剥离VLAN TAG? interface g0/0/1 port link-type hybrid port hybrid pvid vlan 10 port hybrid tagged vlan 2 to 3 port hybrid untagged vlan 4 6",
+    "options": [
+      {
+        "key": "A",
+        "text": "2、3"
+      },
+      {
+        "key": "B",
+        "text": "4、6"
+      },
+      {
+        "key": "C",
+        "text": "2、3、4、6"
+      },
+      {
+        "key": "D",
+        "text": "10"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 50,
+    "type": "single",
+    "question": "交换机某个端口配置信息如图，下列说法错误的是？ interface G0/0/1 port link-type trunk port trunk pvid vlan 200 port trunk allow-pass vlan 100",
+    "options": [
+      {
+        "key": "A",
+        "text": "如果数据帧携带的VLAN TAG为100，则交换机剥离VLAN TAG发出"
+      },
+      {
+        "key": "B",
+        "text": "如果该端口收到不带VLAN TAG的数据帧，则交换机需要添加VLAN TAG 200"
+      },
+      {
+        "key": "C",
+        "text": "该端口不能发送携带VLAN TAG 200的数据帧"
+      },
+      {
+        "key": "D",
+        "text": "该端口类型为Trunk类型"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 51,
+    "type": "single",
+    "question": "当交换机和主机之间相连，交换机常用的端口链路类型为？",
+    "options": [
+      {
+        "key": "A",
+        "text": "Access链路"
+      },
+      {
+        "key": "B",
+        "text": "Trunk链路"
+      },
+      {
+        "key": "C",
+        "text": "Hybrid链路"
+      },
+      {
+        "key": "D",
+        "text": "Qinq链路"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 52,
+    "type": "single",
+    "question": "某交换机收到一个带有VLAN标签的数据帧，但发现在其MAC地址表中查询不到该数据帧的目的MAC地址，则交换机对该数据帧的处理行为是（）。",
+    "options": [
+      {
+        "key": "A",
+        "text": "交换机会丢弃此数据帧"
+      },
+      {
+        "key": "B",
+        "text": "交换机会向所有Access端口广播此数据帧"
+      },
+      {
+        "key": "C",
+        "text": "交换机会向属于该数据帧所在VLAN中的所有端口（除接收端口）广播此数据帧"
+      },
+      {
+        "key": "D",
+        "text": "交换机会向所有端口广播该数据帧"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 53,
+    "type": "single",
+    "question": "某企业希望对网络做VLAN划分，希望无论从任何接入点访问公司网络，都属于某固定VLAN，则建议采用哪种VLAN划分方案：（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "基于端口划分"
+      },
+      {
+        "key": "B",
+        "text": "基于MAC划分"
+      },
+      {
+        "key": "C",
+        "text": "基于协议划分"
+      },
+      {
+        "key": "D",
+        "text": "基于物理位置划分"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 54,
+    "type": "single",
+    "question": "以下对VLAN的描述错误的是：（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "VLAN隔离了广播域"
+      },
+      {
+        "key": "B",
+        "text": "VLAN在一定程度上实现了网络安全"
+      },
+      {
+        "key": "C",
+        "text": "VLAN隔离了冲突域"
+      },
+      {
+        "key": "D",
+        "text": "VLAN是二层技术"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 55,
+    "type": "single",
+    "question": "下面关于VLAN的描述中，不正确的是( )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "VLAN把交换机划分成多个逻辑上独立的交换机"
+      },
+      {
+        "key": "B",
+        "text": "主干链路可以提供多个VLAN之间通信的公共通道"
+      },
+      {
+        "key": "C",
+        "text": "由于包含多个交换机，VLAN扩大了冲突域"
+      },
+      {
+        "key": "D",
+        "text": "一个VLAN可以跨越交换机"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 56,
+    "type": "single",
+    "question": "使用命令“vlan batch 10 20”“vlan batch 10 to 20”分别能创建的VLAN数量是( )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "2和2"
+      },
+      {
+        "key": "B",
+        "text": "11和11"
+      },
+      {
+        "key": "C",
+        "text": "11和2"
+      },
+      {
+        "key": "D",
+        "text": "2和11"
+      }
+    ],
+    "answer": [
+      "D"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 57,
+    "type": "single",
+    "question": "如下图所示，主机A跟主机C通信时，SWA与SWB间的Trunk链路传递的是不带VLAN标记的数据帧，但是当主机B跟主机D通信时，SWA与SWB间的Trunk链路传递的是带VLAN标记20的数据帧。根据以上信息，下列描述中正确的是( )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "SWA上的G0/0/2接口不允许VLAN 10通过"
+      },
+      {
+        "key": "B",
+        "text": "SWA上的G0/0/2接口的PVID是10"
+      },
+      {
+        "key": "C",
+        "text": "SWA上的G0/0/2接口的PVID是20"
+      },
+      {
+        "key": "D",
+        "text": "SWA上的G0/0/2接口的PVID是1"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "VLAN",
+    "image": "assets/question-images/network_057.jpg"
+  },
+  {
+    "id": 58,
+    "type": "single",
+    "question": "如下图所示，交换机与主机连接的接口均为Access接口，SWA的G0/0/1的PVID为2，SWB的G0/0/1的PVID为2，SWB的G0/0/3的PVID为3。SWA的G0/0/2为Trunk接口，PVID为2，且允许所有VLAN通过。SWB的G0/0/2为Trunk接口，PVID为3,且允许所有VLAN通过。如果主机A、B和C的IP地址在同一个网段，那么下列描述中正确的是( )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "主机A只可以与主机B通信"
+      },
+      {
+        "key": "B",
+        "text": "主机A只可以与主机C通信"
+      },
+      {
+        "key": "C",
+        "text": "主机A既可以与主机B通信，又可以与主机C通信"
+      },
+      {
+        "key": "D",
+        "text": "主机A既不能与主机B通信，又不能与主机C通信"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "VLAN",
+    "image": "assets/question-images/network_058.jpg"
+  },
+  {
+    "id": 59,
+    "type": "multiple",
+    "question": "如果一个以太网数据帧的Length/Type=0x8100, 那么这个数据帧可能是由以下哪种端口发出的？（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "交换机Hybrid类型的端口"
+      },
+      {
+        "key": "B",
+        "text": "交换机Access类型的端口"
+      },
+      {
+        "key": "C",
+        "text": "路由器的Serial接口"
+      },
+      {
+        "key": "D",
+        "text": "交换机Trunk类型的端口"
+      }
+    ],
+    "answer": [
+      "A",
+      "D"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 60,
+    "type": "multiple",
+    "question": "在交换机上，哪些VLAN可以通过使用undo命令来对其进行删除？",
+    "options": [
+      {
+        "key": "A",
+        "text": "vlan 1"
+      },
+      {
+        "key": "B",
+        "text": "vlan 2"
+      },
+      {
+        "key": "C",
+        "text": "vlan 1024"
+      },
+      {
+        "key": "D",
+        "text": "vlan 4094"
+      }
+    ],
+    "answer": [
+      "B",
+      "C",
+      "D"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 61,
+    "type": "multiple",
+    "question": "在VRP平台上，命令interface vlan 10\"的作用是？",
+    "options": [
+      {
+        "key": "A",
+        "text": "创建vlanif接口"
+      },
+      {
+        "key": "B",
+        "text": "进入VLANIF接口视图"
+      },
+      {
+        "key": "C",
+        "text": "创建一个VLAN"
+      },
+      {
+        "key": "D",
+        "text": "给接口配置VLAN"
+      }
+    ],
+    "answer": [
+      "A",
+      "B"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 62,
+    "type": "multiple",
+    "question": "如果一个Trunk链路PVID是5，且端口下配置port trunk allow-pass vlan 2 3，那么哪些VLAN的流量可以通过该Trunk链路进行传输？（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "VLAN 1"
+      },
+      {
+        "key": "B",
+        "text": "VLAN 2"
+      },
+      {
+        "key": "C",
+        "text": "VLAN 3"
+      },
+      {
+        "key": "D",
+        "text": "VLAN 5"
+      }
+    ],
+    "answer": [
+      "A",
+      "B",
+      "C"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 63,
+    "type": "multiple",
+    "question": "下列关于VLAN的描述中，错误的是？( )",
+    "options": [
+      {
+        "key": "A",
+        "text": "VLAN技术可以将一个规模较大的冲突域隔离成若干个规模较小的冲突域"
+      },
+      {
+        "key": "B",
+        "text": "VLAN技术可以将一个规模较大的二层广播域隔离成若干个规模较小的二层广播域"
+      },
+      {
+        "key": "C",
+        "text": "位于不同VLAN的计算机之间无法进行通信"
+      },
+      {
+        "key": "D",
+        "text": "位于同一VLAN中的计算机之间可以进行二层通信"
+      }
+    ],
+    "answer": [
+      "A",
+      "C"
+    ],
+    "knowledge": "VLAN"
+  },
+  {
+    "id": 64,
+    "type": "single",
+    "question": "公司有用户反映在使用网络传输文件时，速度非常低，管理员在网络中使用Wireshark软件抓包发现了一些重复的帧，下面关于可能的原因或解决方案描述正确的是（ ）。",
+    "options": [
+      {
+        "key": "A",
+        "text": "公司网络的交换设备必须进行升级改造"
+      },
+      {
+        "key": "B",
+        "text": "网络在二层存在环路"
+      },
+      {
+        "key": "C",
+        "text": "网络中没有配置VLAN"
+      },
+      {
+        "key": "D",
+        "text": "交换机在MAC地址表中查不到数据帧的目的MAC地址时，会泛洪该数据帧"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "生成树"
+  },
+  {
+    "id": 65,
+    "type": "single",
+    "question": "缺省情况下，STP协议Forward Delay时间是多少秒？",
+    "options": [
+      {
+        "key": "A",
+        "text": "10"
+      },
+      {
+        "key": "B",
+        "text": "15"
+      },
+      {
+        "key": "C",
+        "text": "20"
+      },
+      {
+        "key": "D",
+        "text": "25"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "生成树"
+  },
+  {
+    "id": 66,
+    "type": "single",
+    "question": "STP协议的配置BPDU报文不包含以下哪个参数？",
+    "options": [
+      {
+        "key": "A",
+        "text": "Port ID"
+      },
+      {
+        "key": "B",
+        "text": "Bridge ID"
+      },
+      {
+        "key": "C",
+        "text": "VLAN ID"
+      },
+      {
+        "key": "D",
+        "text": "Root ID"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "生成树"
+  },
+  {
+    "id": 67,
+    "type": "single",
+    "question": "生成树协议中使用哪个参数来进行根桥的选举？（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "BID"
+      },
+      {
+        "key": "B",
+        "text": "PID"
+      },
+      {
+        "key": "C",
+        "text": "RPC"
+      },
+      {
+        "key": "D",
+        "text": "Cost"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "生成树"
+  },
+  {
+    "id": 68,
+    "type": "single",
+    "question": "华为Sx7系列交换机运行STP时，缺省情况下交换机的优先级为（ ）。",
+    "options": [
+      {
+        "key": "A",
+        "text": "0"
+      },
+      {
+        "key": "B",
+        "text": "32768"
+      },
+      {
+        "key": "C",
+        "text": "65535"
+      },
+      {
+        "key": "D",
+        "text": "16384"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "生成树"
+  },
+  {
+    "id": 69,
+    "type": "single",
+    "question": "存在冗余的二层网络中，可以使用下列哪种协议避免出现环路？",
+    "options": [
+      {
+        "key": "A",
+        "text": "ARP"
+      },
+      {
+        "key": "B",
+        "text": "STP"
+      },
+      {
+        "key": "C",
+        "text": "DHCP"
+      },
+      {
+        "key": "D",
+        "text": "OSPF"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "生成树"
+  },
+  {
+    "id": 70,
+    "type": "single",
+    "question": "下列关于生成树协议根桥选举说法正确的是？",
+    "options": [
+      {
+        "key": "A",
+        "text": "桥优先级相同时，MAC地址大的设备成为根桥"
+      },
+      {
+        "key": "B",
+        "text": "桥优先级相同时，端口数量较多的设备成为根桥"
+      },
+      {
+        "key": "C",
+        "text": "桥优先级数值较小的设备成为根桥"
+      },
+      {
+        "key": "D",
+        "text": "桥优先级的数值较大的设备成为根桥"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "生成树"
+  },
+  {
+    "id": 71,
+    "type": "single",
+    "question": "运行STP协议的设备端口处于Learning状态，下列说法正确的有？",
+    "options": [
+      {
+        "key": "A",
+        "text": "该端口端口仅仅接收并处理BPDU，不转发用户流量"
+      },
+      {
+        "key": "B",
+        "text": "该端口端口既转发用户流量也处理BPDU报文"
+      },
+      {
+        "key": "C",
+        "text": "该端口端口不仅不处理BPDU报文，也不转发用户流量"
+      },
+      {
+        "key": "D",
+        "text": "该端口会根据收到的用户流量构建MAC地址表，但不转发用户流量"
+      }
+    ],
+    "answer": [
+      "D"
+    ],
+    "knowledge": "生成树"
+  },
+  {
+    "id": 72,
+    "type": "single",
+    "question": "使用单臂路由器实现VLAN间通信时，通常的做法是采用子接口，而不是直接采用物理接口，这是因为（ ）。",
+    "options": [
+      {
+        "key": "A",
+        "text": "物理接口不能封装802.1Q"
+      },
+      {
+        "key": "B",
+        "text": "子接口转发速度更快"
+      },
+      {
+        "key": "C",
+        "text": "用子接口能节约物理接口"
+      },
+      {
+        "key": "D",
+        "text": "子接口可以配置Access接口或Trunk接口"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "VLAN间通信"
+  },
+  {
+    "id": 73,
+    "type": "single",
+    "question": "以下关于生成树协议中Forwarding状态的描述，错误的是( )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "Forwarding状态的接口可以接收BPDU报文"
+      },
+      {
+        "key": "B",
+        "text": "Forwarding状态的接口不学习报文的源MAC地址"
+      },
+      {
+        "key": "C",
+        "text": "Forwarding状态的接口可以转发数据报文"
+      },
+      {
+        "key": "D",
+        "text": "Forwarding状态的接口可以发送BPDU报文"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "生成树"
+  },
+  {
+    "id": 74,
+    "type": "single",
+    "question": "如下图所示，两台主机通过单臂路由器实现VLAN间通信，当RTA的G0/0/1.2子接口收到主机B发送给主机A的数据帧时，RTA将执行下列哪项操作？（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "RTA将数据帧通过G0/0/1.1子接口直接转发出去"
+      },
+      {
+        "key": "B",
+        "text": "RTA删除VLAN标记20后，由G0/0/1.1接口发送出去"
+      },
+      {
+        "key": "C",
+        "text": "RTA首先删除VLAN标记20，然后添加VLAN标记10，再由G0/0/1.1接口发送出去"
+      },
+      {
+        "key": "D",
+        "text": "RTA将丢弃数据帧"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "VLAN间通信",
+    "image": "assets/question-images/network_074.jpg"
+  },
+  {
+    "id": 75,
+    "type": "multiple",
+    "question": "运行STP协议的交换网络在进行生成树计算时用到了以下哪些参数？",
+    "options": [
+      {
+        "key": "A",
+        "text": "根路径开销"
+      },
+      {
+        "key": "B",
+        "text": "端口ID"
+      },
+      {
+        "key": "C",
+        "text": "桥ID"
+      },
+      {
+        "key": "D",
+        "text": "Forward Delay"
+      }
+    ],
+    "answer": [
+      "A",
+      "B",
+      "C"
+    ],
+    "knowledge": "生成树"
+  },
+  {
+    "id": 76,
+    "type": "multiple",
+    "question": "*下列关于单臂路由的说法正确的有？（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "每个VLAN一个物理连接"
+      },
+      {
+        "key": "B",
+        "text": "把连接到路由器的端口配置成Trunk类型的端口，并允许相关VLAN的帧通过"
+      },
+      {
+        "key": "C",
+        "text": "在路由器上需要创建子接口"
+      },
+      {
+        "key": "D",
+        "text": "交换机和路由器之间仅使用一条物理链路连接"
+      }
+    ],
+    "answer": [
+      "B",
+      "C",
+      "D"
+    ],
+    "knowledge": "VLAN间通信"
+  },
+  {
+    "id": 77,
+    "type": "multiple",
+    "question": "关于STP 协议说法正确的是：（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "BridgeID 值由网桥的优先级和网桥的MAC 地址组合而成。前面是MAC 地址，后面是优先级"
+      },
+      {
+        "key": "B",
+        "text": "华为以太网交换机的默认优先级值是32768"
+      },
+      {
+        "key": "C",
+        "text": "优先级值越大优先级越低"
+      },
+      {
+        "key": "D",
+        "text": "BridgeID值小的将被选为根桥"
+      }
+    ],
+    "answer": [
+      "B",
+      "C",
+      "D"
+    ],
+    "knowledge": "生成树"
+  },
+  {
+    "id": 78,
+    "type": "multiple",
+    "question": "生成树协议中，哪些因素会影响根桥的选择？",
+    "options": [
+      {
+        "key": "A",
+        "text": "MAC地址"
+      },
+      {
+        "key": "B",
+        "text": "端口成本"
+      },
+      {
+        "key": "C",
+        "text": "优先级"
+      },
+      {
+        "key": "D",
+        "text": "端口数量"
+      },
+      {
+        "key": "E",
+        "text": "链路带宽"
+      }
+    ],
+    "answer": [
+      "A",
+      "C"
+    ],
+    "knowledge": "生成树"
+  },
+  {
+    "id": 79,
+    "type": "single",
+    "question": "如下图所示的网络，管理员希望Router A使用静态路由的方式，指定优先通过G0/0/1端口发送数据包给Router B，则在Router A输入哪条命令可以实现此需求？",
+    "options": [
+      {
+        "key": "A",
+        "text": "ip route-static 10.0.2.2 255.255.255.255 10.0.12.2\nip route-static 10.0.2.2 255.255.255.255 10.0.21.2 preference 40"
+      },
+      {
+        "key": "B",
+        "text": "ip route-static 10.0.2.2 255.255.255.255 10.0.12.2\nip route-static 10.0.2.2 255.255.255.255 10.0.21.2 preference 70"
+      },
+      {
+        "key": "C",
+        "text": "ip route-static 10.0.2.2 255.255.255.255 10.0.12.2 ip route-static 10.0.2.2 255.255.255.255 10.0.21.2"
+      },
+      {
+        "key": "D",
+        "text": "ip route-static 10.0.2.2 255.255.255.255 10.0.12.2 preference 70 ip route-static 10.0.2.2 255.255.255.255 10.0.21.2"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "IP路由基础",
+    "image": "assets/question-images/network_079.png"
+  },
+  {
+    "id": 80,
+    "type": "single",
+    "question": "以下关于静态路由说法错误的是？",
+    "options": [
+      {
+        "key": "A",
+        "text": "通过网络管理员手动配置"
+      },
+      {
+        "key": "B",
+        "text": "路由器之间需要交互路由信息"
+      },
+      {
+        "key": "C",
+        "text": "不能自动适应网络拓扑的变化"
+      },
+      {
+        "key": "D",
+        "text": "对系统性能要求低"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 81,
+    "type": "single",
+    "question": "以下关于直连路由说法正确的是？",
+    "options": [
+      {
+        "key": "A",
+        "text": "直连路由优先级低于动态路由"
+      },
+      {
+        "key": "B",
+        "text": "直连路由需要管理员手工配置目的网络和下一跳地址"
+      },
+      {
+        "key": "C",
+        "text": "直连路由优先级最高"
+      },
+      {
+        "key": "D",
+        "text": "直连路由优先级低于静态路由"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 82,
+    "type": "single",
+    "question": "某公司申请到一个C类IP地址段，但要分配给6个子公司，最大的一个子公司有26台计算机，不同的子公司必须在不同的网段中，则该最大的子公司的网络子网掩码应设为（ )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "255.255.255.224"
+      },
+      {
+        "key": "B",
+        "text": "255.255.255.128"
+      },
+      {
+        "key": "C",
+        "text": "255.255.255.0"
+      },
+      {
+        "key": "D",
+        "text": "255.255.255.192"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "IP地址和子网划分"
+  },
+  {
+    "id": 83,
+    "type": "single",
+    "question": "IP报文头部中有一个TTL字段，关于该字段说法正确的是（ )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "该字段用来表示数据包的优先级"
+      },
+      {
+        "key": "B",
+        "text": "该字段长度为7位"
+      },
+      {
+        "key": "C",
+        "text": ".该字段用于数据包防环"
+      },
+      {
+        "key": "D",
+        "text": "该字段用于数据包分片"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 84,
+    "type": "single",
+    "question": "VRP操作平台，以下哪条命令可以只查看静态路由？( )",
+    "options": [
+      {
+        "key": "A",
+        "text": "display ip routing-table verbose"
+      },
+      {
+        "key": "B",
+        "text": "display ip routing-table statistics"
+      },
+      {
+        "key": "C",
+        "text": "display ip routing-table protocol static"
+      },
+      {
+        "key": "D",
+        "text": "display ip routing-table"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 85,
+    "type": "single",
+    "question": "下面哪项是路由表中所不包含的？（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "源网络IP"
+      },
+      {
+        "key": "B",
+        "text": "目的网络IP"
+      },
+      {
+        "key": "C",
+        "text": "路由来源"
+      },
+      {
+        "key": "D",
+        "text": "下一跳IP地址"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 86,
+    "type": "single",
+    "question": "管理员要在路由器的G0/0/0接口上配置IP地址，那么使用下面哪一个地址才是正确的？",
+    "options": [
+      {
+        "key": "A",
+        "text": "145.4.2.55/26"
+      },
+      {
+        "key": "B",
+        "text": "237.6.1.2/24"
+      },
+      {
+        "key": "C",
+        "text": "127.3.1.4/28"
+      },
+      {
+        "key": "D",
+        "text": "192.168.10.112/30"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "IP地址和子网划分"
+  },
+  {
+    "id": 87,
+    "type": "single",
+    "question": "路由器收到一个IP数据包，其目标地址为202.31.17.4，与该地址匹配的子网是( )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "202.31.0.0/21"
+      },
+      {
+        "key": "B",
+        "text": "202.31.16.0/20"
+      },
+      {
+        "key": "C",
+        "text": "202.31.8.0/22"
+      },
+      {
+        "key": "D",
+        "text": "202.31.20.0/22"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 88,
+    "type": "single",
+    "question": "下面关于IP报文头部中TTL字段的说法正确的是（ )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "TTL定义了源主机可以发送数据包的数量"
+      },
+      {
+        "key": "B",
+        "text": "IP报文每经过一台路由器时，其TTL值会被减1"
+      },
+      {
+        "key": "C",
+        "text": "TTL定义了源主机可以发送数据包的时间间隔"
+      },
+      {
+        "key": "D",
+        "text": "IP报文每经过一台路由器时，其TTL值会被加1"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 89,
+    "type": "single",
+    "question": "假设有4条路由:170.18.129.0/24、170.18.130.0/24、170.18.132.0/24和170.18.133.0/24。如果进行路由汇总，能覆盖这4条路由的地址是( )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "170.18.128.0/21"
+      },
+      {
+        "key": "B",
+        "text": "170.18.128.0/22"
+      },
+      {
+        "key": "C",
+        "text": "170.18.130.0/22"
+      },
+      {
+        "key": "D",
+        "text": "170.18.132.0/23"
+      }
+    ],
+    "answer": [
+      "A"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 90,
+    "type": "single",
+    "question": "下列静态路由配置中正确的是( )。",
+    "options": [
+      {
+        "key": "A",
+        "text": "[R1]ip route-static 129.1.4.0 16 serial 0"
+      },
+      {
+        "key": "B",
+        "text": "[R1]ip route-static 10.0.0.2 16 129.1.0.0"
+      },
+      {
+        "key": "C",
+        "text": "[R1]ip route-static 129.1.0.0 16 10.0.0.2"
+      },
+      {
+        "key": "D",
+        "text": "[R1]ip route-static 129.1.2.0 255.255.0.0 10.0.0.2"
+      }
+    ],
+    "answer": [
+      "C"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 91,
+    "type": "multiple",
+    "question": "下列哪一类地址不可以作为主机的IPv4地址？",
+    "options": [
+      {
+        "key": "A",
+        "text": "127.0.0.1"
+      },
+      {
+        "key": "B",
+        "text": "200.0.0.1/24"
+      },
+      {
+        "key": "C",
+        "text": "224.0.0.5"
+      },
+      {
+        "key": "D",
+        "text": "239.0.0.1"
+      },
+      {
+        "key": "E",
+        "text": "255.255.255.255"
+      }
+    ],
+    "answer": [
+      "A",
+      "C",
+      "D",
+      "E"
+    ],
+    "knowledge": "IP地址和子网划分"
+  },
+  {
+    "id": 92,
+    "type": "multiple",
+    "question": "下列关于缺省路由的说法正确的有？",
+    "options": [
+      {
+        "key": "A",
+        "text": "缺省路由只能由管理员手工配置"
+      },
+      {
+        "key": "B",
+        "text": "在路由表中，缺省路由以到网络0.0.0.0（掩码也为0.0.0.0）的路由形式出现"
+      },
+      {
+        "key": "C",
+        "text": "任何一台路由器的路由表中必须存在缺省路由"
+      },
+      {
+        "key": "D",
+        "text": "如果报文的目的地址不能与路由表的任何目的地址相匹配，那么该报文将选取缺省路由进行转发"
+      }
+    ],
+    "answer": [
+      "B",
+      "D"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 93,
+    "type": "multiple",
+    "question": "ip route-static 10.0.2.2 255.255.255.255 10.0.12.2 preference 20，关于此命令说法正确的是？",
+    "options": [
+      {
+        "key": "A",
+        "text": "该路由可以指导目的IP地址为10.0.2.2的数据包转发"
+      },
+      {
+        "key": "B",
+        "text": "该路由可以指导目的IP地址为10.0.12.2的数据包转发"
+      },
+      {
+        "key": "C",
+        "text": "该路由优先级为20"
+      },
+      {
+        "key": "D",
+        "text": "该路由的NextHop为10.0.12.2"
+      }
+    ],
+    "answer": [
+      "A",
+      "C",
+      "D"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 94,
+    "type": "multiple",
+    "question": "路由条目10.0.0.24/29可能由如下哪几条子网路由汇聚而来？",
+    "options": [
+      {
+        "key": "A",
+        "text": "10.0.0.24/30"
+      },
+      {
+        "key": "B",
+        "text": "10.0.0.26/30"
+      },
+      {
+        "key": "C",
+        "text": "10.0.0.28/30"
+      },
+      {
+        "key": "D",
+        "text": "10.0.0.23/30"
+      }
+    ],
+    "answer": [
+      "A",
+      "B",
+      "C"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 95,
+    "type": "multiple",
+    "question": "下列哪一类地址可以作为主机的IPv4地址？",
+    "options": [
+      {
+        "key": "A",
+        "text": "A类地址"
+      },
+      {
+        "key": "B",
+        "text": "B类地址"
+      },
+      {
+        "key": "C",
+        "text": "C类地址"
+      },
+      {
+        "key": "D",
+        "text": "D类地址"
+      },
+      {
+        "key": "E",
+        "text": "E类地址"
+      }
+    ],
+    "answer": [
+      "A",
+      "B",
+      "C"
+    ],
+    "knowledge": "IP地址和子网划分"
+  },
+  {
+    "id": 96,
+    "type": "multiple",
+    "question": "ip route-static 10.0.12.0 255.255.255.0 192.168.1.1关于此命令描述正确的是（）。",
+    "options": [
+      {
+        "key": "A",
+        "text": "如果路由器通过其他协议学习到和此路由相同目的网络的路由，路由器将会优先选择此路由"
+      },
+      {
+        "key": "B",
+        "text": "此命令配置了一条到达192.168.1.1网络的路由"
+      },
+      {
+        "key": "C",
+        "text": "该路由的优先级为60"
+      },
+      {
+        "key": "D",
+        "text": "该路由的的下一跳为192.168.1.1"
+      }
+    ],
+    "answer": [
+      "C",
+      "D"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 97,
+    "type": "multiple",
+    "question": "路由表当中包含以下哪些要素？（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "Interface"
+      },
+      {
+        "key": "B",
+        "text": "Protocol"
+      },
+      {
+        "key": "C",
+        "text": "Destination/Mask"
+      },
+      {
+        "key": "D",
+        "text": "Cost"
+      }
+    ],
+    "answer": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 98,
+    "type": "multiple",
+    "question": "如下图所示的网络，主机存在ARP缓存，下列说法正确的有？",
+    "options": [
+      {
+        "key": "A",
+        "text": "路由器需要配置静态路由，否则主机A和主机B不能双向通信"
+      },
+      {
+        "key": "B",
+        "text": "主机A的ARP缓存中存在如下条目10.0.12.2 MAC-C"
+      },
+      {
+        "key": "C",
+        "text": "主机A的ARP缓存中存在如下条目11.0.12.1 MAC-B"
+      },
+      {
+        "key": "D",
+        "text": "主机A和主机B可以双向通信"
+      }
+    ],
+    "answer": [
+      "B",
+      "D"
+    ],
+    "knowledge": "IP路由基础",
+    "image": "assets/question-images/network_098.png"
+  },
+  {
+    "id": 99,
+    "type": "multiple",
+    "question": "以下关于静态路由说法正确的是？",
+    "options": [
+      {
+        "key": "A",
+        "text": "通过网络管理员手动配置"
+      },
+      {
+        "key": "B",
+        "text": "路由器之间需要交互路由信息"
+      },
+      {
+        "key": "C",
+        "text": "不能自动适应网络拓扑的变化"
+      },
+      {
+        "key": "D",
+        "text": "对系统性能要求低"
+      }
+    ],
+    "answer": [
+      "A",
+      "C",
+      "D"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 100,
+    "type": "multiple",
+    "question": "路由表中可能有如下哪几种来源的路由（ ）？",
+    "options": [
+      {
+        "key": "A",
+        "text": "链路层协议发现的路由（也称为接口路由或直连路由）"
+      },
+      {
+        "key": "B",
+        "text": "网络层协议发现的直连路由"
+      },
+      {
+        "key": "C",
+        "text": "由网络管理员手工配置的静态路由"
+      },
+      {
+        "key": "D",
+        "text": "动态路由协议发现的路由"
+      }
+    ],
+    "answer": [
+      "A",
+      "C",
+      "D"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 101,
+    "type": "multiple",
+    "question": "下列关于华为设备中静态路由的优先级说法正确的是：（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "静态路由器优先级值的范围为0-255"
+      },
+      {
+        "key": "B",
+        "text": "静态路由器优先级的缺省值为60"
+      },
+      {
+        "key": "C",
+        "text": "静态路由的优先级可以修改"
+      },
+      {
+        "key": "D",
+        "text": "静态路由的优先级值只能统一修改，不能逐条修改"
+      }
+    ],
+    "answer": [
+      "B",
+      "C"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 102,
+    "type": "multiple",
+    "question": "某公司被分到了一个C类网络地址段192.168.20.0/24，现有一个部门有40台主机，请问以下哪些子网可被分配？（ ）",
+    "options": [
+      {
+        "key": "A",
+        "text": "192.168.20.64/26"
+      },
+      {
+        "key": "B",
+        "text": "192.168.20.64/27"
+      },
+      {
+        "key": "C",
+        "text": "192.168.20.128/26"
+      },
+      {
+        "key": "D",
+        "text": "192.168.20.190/26"
+      }
+    ],
+    "answer": [
+      "A",
+      "C"
+    ],
+    "knowledge": "IP地址和子网划分"
+  },
+  {
+    "id": 103,
+    "type": "multiple",
+    "question": "下列关于路由说法不正确的是（ ）。",
+    "options": [
+      {
+        "key": "A",
+        "text": "缺省情况下，直连路由高于OSPF路由的优先级"
+      },
+      {
+        "key": "B",
+        "text": "路由协议优先级值越大则表示该路由的优先级越高"
+      },
+      {
+        "key": "C",
+        "text": "每条静态路由的优先级可以不相同"
+      },
+      {
+        "key": "D",
+        "text": "若路由条目的cost值越大，则该路由的优先级越高"
+      }
+    ],
+    "answer": [
+      "B",
+      "D"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 104,
+    "type": "judge",
+    "question": "静态路由协议的优先级不能手工指定。",
+    "options": [
+      {
+        "key": "A",
+        "text": "对"
+      },
+      {
+        "key": "B",
+        "text": "错"
+      }
+    ],
+    "answer": [
+      "B"
+    ],
+    "knowledge": "IP路由基础"
+  },
+  {
+    "id": 105,
+    "type": "judge",
+    "question": "在广播型的接口上配置静态路由时，可以通过指定下一跳地址或出接口来配置静态路由。",
+    "options": [
+      {
+        "key": "A",
+        "text": "对"
+      },
+      {
+        "key": "B",
+        "text": "错"
+      }
+    ],
+    "answer": [
+      "B"
+    ]
+  }
+]
