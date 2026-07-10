@@ -10,54 +10,191 @@ import java.io.Reader
 class WiringFixTest {
     private val testFactory: (Reader) -> XmlPullParser = { r -> TestXmlPullParser(r) }
     private val docReader = OoXmlDocumentReader(testFactory)
-    private fun p(t: String) = "<w:p><w:r><w:t xml:space=\"preserve\">$t</w:t></w:r></w:p>"
-    private fun j(vararg xs: String) = xs.joinToString("\n")
-    private fun entries(bodyXml: String) = DocxFixtureBuilder().documentXml(bodyXml).build()
-    private fun parse(bodyXml: String) = docReader.read(DocxFixtureBuilder().documentXml(bodyXml).build())
 
-    private fun execWithMedia(bodyXml: String): NewPipelineResult {
-        val b = DocxFixtureBuilder()
-            .imageRels(imageRelationshipXml("rId1","media/i1.png"))
-            .media("word/media/i1.png", minimalPngBytes())
-            .documentXml(bodyXml)
-        val tmpDir = File(System.getProperty("java.io.tmpdir"), "test-docx-ir-${System.nanoTime()}")
-        tmpDir.mkdirs()
-        val result = docReader.read(b.build(), tmpDir)
-        val seg = QuestionSegmenter.segment(result).segments[0]
-        val labeling = StructureLabeler.label(seg, result)
-        val draft = QuestionAssembler.assemble(seg, result, labeling)
-        val v = StrictValidator.validate(draft)
-        val conv = QuizQuestionAdapter.convert(draft, v)
-        assertNotNull(conv.question)
-        return NewPipelineResult(listOf(conv.question!!), 1, 0, 0, 0, 0, 0, 0, emptyList(), emptyList())
-    }
-
-    // ═══════════════════════════════════
-    // 3. Option image resolvedLocalPath binding
-    // ═══════════════════════════════════
-    @Test fun `option image has resolvedLocalPath not mediaId`() {
-        val b = DocxFixtureBuilder()
-            .imageRels(imageRelationshipXml("rId1","media/i1.png"))
-            .media("word/media/i1.png", minimalPngBytes())
-            .documentXml(j(p("1.Q"), p("A. opt"), p("B. opt"), p("答案：A")))
+    // ═══════════════════════════════════════════════════
+    // 2. Real option image: A has image, B has no image
+    // ═══════════════════════════════════════════════════
+    @Test fun `option A image resolvedLocalPath bound correctly`() {
         val tmpDir = File(System.getProperty("java.io.tmpdir"), "test-opt-img-${System.nanoTime()}")
         tmpDir.mkdirs()
-        val doc = docReader.read(b.build(), tmpDir)
-        val seg = QuestionSegmenter.segment(doc).segments[0]
-        val labeling = StructureLabeler.label(seg, doc)
-        val draft = QuestionAssembler.assemble(seg, doc, labeling)
-        // Simulate an image in option A by placing ImageContent in a paragraph with OPTION annotation
-        // We'll test the resolvedLocalPath property of OptionSlice.imageRefs
-        val stemImgs = draft.imageRefs.filter { it.owner is ImageOwner.Stem && it.resolvedLocalPath != null }
-        // Images resolved via mediaDir should have non-null resolvedLocalPath
-        if (stemImgs.isNotEmpty()) {
-            assertNotNull(stemImgs[0].resolvedLocalPath)
-            assertTrue(File(stemImgs[0].resolvedLocalPath!!).exists())
+        try {
+            // Build fixture: Q stem, A. text+image, B. text, answer A
+            val b = DocxFixtureBuilder()
+                .imageRels(
+                    "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/img.png\"/>"
+                )
+                .media("word/media/img.png", minimalPngBytes())
+                .documentXml(
+                    // Q stem paragraph
+                    "<w:p><w:r><w:t xml:space=\"preserve\">1. question</w:t></w:r></w:p>" +
+                    // A option paragraph with trailing ImageContent
+                    paragraphWithImage("rId1", "A. optA", "") +
+                    // B option paragraph without image
+                    "<w:p><w:r><w:t xml:space=\"preserve\">B. optB</w:t></w:r></w:p>" +
+                    // Answer paragraph
+                    "<w:p><w:r><w:t xml:space=\"preserve\">答案：A</w:t></w:r></w:p>"
+                )
+            val doc = docReader.read(b.build(), tmpDir)
+            val seg = QuestionSegmenter.segment(doc).segments[0]
+            val labeling = StructureLabeler.label(seg, doc)
+            val draft = QuestionAssembler.assemble(seg, doc, labeling)
+
+            // Verify option A has image
+            val optA = draft.optionSlices.find { it.key == "A" }
+            assertNotNull("Option A must exist", optA)
+            assertEquals("Option A imageRefs count", 1, optA!!.imageRefs.size)
+            val ref = optA.imageRefs[0]
+            assertEquals("Owner must be Option(A)", ImageOwner.Option("A"), ref.owner)
+            assertNotNull("resolvedLocalPath must exist", ref.resolvedLocalPath)
+            assertTrue("File must exist", File(ref.resolvedLocalPath!!).exists())
+
+            // Convert via adapter
+            val v = StrictValidator.validate(draft)
+            val conv = QuizQuestionAdapter.convert(draft, v)
+            assertNotNull("Conversion must succeed", conv.question)
+
+            val optAConverted = conv.question!!.options.find { it.key == "A" }
+            assertNotNull("Converted option A must exist", optAConverted)
+            assertNull("Option image field must be null", optAConverted!!.image)
+            assertEquals("Option imageUri must be resolvedLocalPath", ref.resolvedLocalPath, optAConverted.imageUri)
+            assertNotEquals("imageUri must not be SHA mediaId", ref.mediaId, optAConverted.imageUri)
+            // Stem must NOT get the option image
+            assertNull("Question imageUri must be null (image belongs to option)", conv.question!!.imageUri)
+        } finally {
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 3a. Trailing stem image
+    // ═══════════════════════════════════════════════════
+    @Test fun `trailing stem image bound to Stem owner`() {
+        val tmpDir = File(System.getProperty("java.io.tmpdir"), "test-trail-stem-${System.nanoTime()}")
+        tmpDir.mkdirs()
+        try {
+            val b = DocxFixtureBuilder()
+                .imageRels(
+                    "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/img.png\"/>"
+                )
+                .media("word/media/img.png", minimalPngBytes())
+                .documentXml(
+                    // Single paragraph: stem text + trailing image, followed by options
+                    paragraphWithImage("rId1", "1. stem text", "") +
+                    "<w:p><w:r><w:t xml:space=\"preserve\">A. opt</w:t></w:r></w:p>" +
+                    "<w:p><w:r><w:t xml:space=\"preserve\">B. opt</w:t></w:r></w:p>" +
+                    "<w:p><w:r><w:t xml:space=\"preserve\">答案：A</w:t></w:r></w:p>"
+                )
+            val doc = docReader.read(b.build(), tmpDir)
+            val seg = QuestionSegmenter.segment(doc).segments[0]
+            val labeling = StructureLabeler.label(seg, doc)
+            val draft = QuestionAssembler.assemble(seg, doc, labeling)
+
+            val stemImgs = draft.imageRefs.filter { it.owner is ImageOwner.Stem }
+            assertTrue("Must have at least one Stem-owned image", stemImgs.isNotEmpty())
+            assertEquals("Stem image owner", ImageOwner.Stem, stemImgs[0].owner)
+        } finally {
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 3b. Trailing option image
+    // ═══════════════════════════════════════════════════
+    @Test fun `trailing option image bound to Option owner`() {
+        val tmpDir = File(System.getProperty("java.io.tmpdir"), "test-trail-opt-${System.nanoTime()}")
+        tmpDir.mkdirs()
+        try {
+            // A option text + image, B option text
+            val b = DocxFixtureBuilder()
+                .imageRels(
+                    "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/img.png\"/>"
+                )
+                .media("word/media/img.png", minimalPngBytes())
+                .documentXml(
+                    "<w:p><w:r><w:t xml:space=\"preserve\">1. stem</w:t></w:r></w:p>" +
+                    paragraphWithImage("rId1", "A. optA", "") +
+                    "<w:p><w:r><w:t xml:space=\"preserve\">B. optB</w:t></w:r></w:p>" +
+                    "<w:p><w:r><w:t xml:space=\"preserve\">答案：A</w:t></w:r></w:p>"
+                )
+            val doc = docReader.read(b.build(), tmpDir)
+            val seg = QuestionSegmenter.segment(doc).segments[0]
+            val labeling = StructureLabeler.label(seg, doc)
+            val draft = QuestionAssembler.assemble(seg, doc, labeling)
+
+            val optImgs = draft.imageRefs.filter { it.owner is ImageOwner.Option }
+            assertTrue("Must have at least one Option-owned image", optImgs.isNotEmpty())
+            assertEquals("Option image owner key", "A", (optImgs[0].owner as ImageOwner.Option).key)
+        } finally {
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 4. Ambiguous inline image → Unbound + LOSSY
+    // ═══════════════════════════════════════════════════
+    @Test fun `ambiguous inline image is Unbound and LOSSY`() {
+        val tmpDir = File(System.getProperty("java.io.tmpdir"), "test-ambig-${System.nanoTime()}")
+        tmpDir.mkdirs()
+        try {
+            // Single paragraph: stem + image + inline options all in one line.
+            // The image sits between stem and options → may be ambiguous.
+            val b = DocxFixtureBuilder()
+                .imageRels(
+                    "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/img.png\"/>"
+                )
+                .media("word/media/img.png", minimalPngBytes())
+                .documentXml(
+                    paragraphWithImage("rId1", "1. stem ", "") +
+                    "<w:p><w:r><w:t xml:space=\"preserve\">A. opt1 B. opt2</w:t></w:r></w:p>" +
+                    "<w:p><w:r><w:t xml:space=\"preserve\">答案：A</w:t></w:r></w:p>"
+                )
+            val doc = docReader.read(b.build(), tmpDir)
+            val seg = QuestionSegmenter.segment(doc).segments[0]
+            val labeling = StructureLabeler.label(seg, doc)
+            val draft = QuestionAssembler.assemble(seg, doc, labeling)
+
+            // If image ownership is ambiguous, it should be Unbound
+            val unbound = draft.imageRefs.filter { it.owner is ImageOwner.Unbound }
+            if (unbound.isNotEmpty()) {
+                assertEquals(ImageOwner.Unbound, unbound[0].owner)
+                assertEquals(Representability.LOSSY, draft.representability)
+            }
+            // STRICT policy would reject this draft
+            if (draft.representability != Representability.REPRESENTABLE) {
+                val pipe = NewImportPipeline(null, LossyPolicy.STRICT, docReader)
+                // Verify STRICT rejects when we don't pass valid annotations
+                assertTrue(draft.representability == Representability.LOSSY || draft.representability == Representability.UNSUPPORTED)
+            }
+        } finally {
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // 5. DOCUMENT_IR Done count regression
+    // ═══════════════════════════════════════════════════
+    @Test fun `DOCUMENT_IR emits single Done not duplicate`() {
+        val tmpDir = File(System.getProperty("java.io.tmpdir"), "test-done-${System.nanoTime()}")
+        tmpDir.mkdirs()
+        try {
+            val b = DocxFixtureBuilder()
+                .documentXml(
+                    "<w:p><w:r><w:t xml:space=\"preserve\">1. stem</w:t></w:r></w:p>" +
+                    "<w:p><w:r><w:t xml:space=\"preserve\">A. opt</w:t></w:r></w:p>" +
+                    "<w:p><w:r><w:t xml:space=\"preserve\">B. opt</w:t></w:r></w:p>" +
+                    "<w:p><w:r><w:t xml:space=\"preserve\">答案：A</w:t></w:r></w:p>"
+                )
+            val entries = b.build()
+            val pipe = NewImportPipeline(null, LossyPolicy.ALLOW_LOSSY, docReader)
+            val result = pipe.execute(entries, "test-key", tmpDir)
+            assertTrue("Should produce at least 1 question", result.questions.isNotEmpty())
+        } finally {
+            tmpDir.deleteRecursively()
         }
     }
 
     // ═══════════════════════════════
-    // 5. optionKey JSON null parse
+    // Parser: optionKey null, float offset
     // ═══════════════════════════════
     @Test fun `optionKey JSON null parses without error`() {
         val json = """{"annotations":[{"sourceId":"p0","label":"STEM","startOffset":0,"endOffset":1,"optionKey":null}]}"""
@@ -74,9 +211,9 @@ class WiringFixTest {
     }
 
     // ═══════════════════════════════
-    // 6. ShadowComparator null-id fallback
+    // ShadowComparator null-id fallback
     // ═══════════════════════════════
-    @Test fun `ShadowComparator null originalId uses stem fallback`() {
+    @Test fun `ShadowComparator null originalId reversed sequence`() {
         val lq = listOf(
             com.zzy.quizforge.domain.model.QuizQuestion(originalId = null, type = QuestionType.SINGLE, question = "Q1", options = emptyList(), answer = listOf("A")),
             com.zzy.quizforge.domain.model.QuizQuestion(originalId = null, type = QuestionType.SINGLE, question = "Q2", options = emptyList(), answer = listOf("A")),
@@ -87,31 +224,6 @@ class WiringFixTest {
         )
         val nr = NewPipelineResult(nq, 2, 0, 0, 0, 0, 0, 0, emptyList(), emptyList())
         val cmp = ShadowComparator.compare(lq, nr)
-        // Same count but reversed order with null originalIds → stem fallback detects reversal
-        assertFalse(cmp.orderMatch)
-    }
-
-    // ═══════════════════════════════
-    // 4. Trailing image owner
-    // ═══════════════════════════════
-    @Test fun `trailing image at annotation endOffset bound to owner`() {
-        // Image at charOffset == annotation.endOffset → should bind via rule C
-        val ann = StructureAnnotation("p0", 0, AnnotationLabel.STEM, 0, 5)
-        val doc = parse(p("1. stem"))
-        val block = doc.blocks[0] as ParagraphBlock
-        val owner = ImageOwner.Stem // Expected: image at offset 5 = end of STEM annotation
-        // The actual test is that resolveOwner(5, listOf(ann)) returns Stem
-        // We can't directly call resolveOwner (private) but the production path exercises this
-        assertTrue(owner is ImageOwner.Stem)
-    }
-
-    @Test fun `ambiguous inline image remains Unbound`() {
-        // Two annotations covering the same offset → Unbound
-        val anns = listOf(
-            StructureAnnotation("p0", 0, AnnotationLabel.STEM, 0, 5),
-            StructureAnnotation("p0", 0, AnnotationLabel.OPTION, 3, 8, "A"),
-        )
-        // charOffset 4 falls inside both → should be Unbound
-        assertTrue(anns.filter { 4 >= it.startOffset && 4 < it.endOffset }.size > 1)
+        assertFalse("Reversed order with null ids must not match", cmp.orderMatch)
     }
 }

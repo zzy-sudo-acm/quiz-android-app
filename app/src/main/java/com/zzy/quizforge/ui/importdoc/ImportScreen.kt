@@ -181,7 +181,7 @@ fun ImportScreen(
                             )
                         }
                         Text(
-                            text = "构建：${BuildConfig.VERSION_NAME} / ${BuildConfig.IMPORT_STRATEGY}",
+                            text = "构建：${BuildConfig.VERSION_NAME} / SHADOW",
                             color = TextMuted,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(top = 4.dp),

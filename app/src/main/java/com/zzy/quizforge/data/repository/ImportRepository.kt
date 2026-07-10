@@ -64,7 +64,6 @@ class ImportRepository(
                 val bankId = quizRepository.createBank(name, result.questions)
                 val msg = "新流水线: ${result.questions.size}题"
                 emit(ImportProgress.Done(bankId, result.questions.size, message = msg))
-                emit(ImportProgress.Done(bankId, result.questions.size, message = msg))
             }
             ImportStrategy.SHADOW -> {
                 // Run legacy pipeline as user-visible result
