@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  备份规则（API ≤30）：排除存储 API Key 的 SharedPreferences 文件。
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="quizforge_secure_settings.xml" />
+    <exclude domain="sharedpref" path="quizforge_settings_fallback.xml" />
+</full-backup-content>

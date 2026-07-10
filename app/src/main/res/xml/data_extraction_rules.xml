@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  备份规则：排除存储 API Key 的 SharedPreferences 文件，
+  避免 API Key 通过云备份或设备迁移泄露。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="quizforge_secure_settings.xml" />
+        <exclude domain="sharedpref" path="quizforge_settings_fallback.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="quizforge_secure_settings.xml" />
+        <exclude domain="sharedpref" path="quizforge_settings_fallback.xml" />
+    </device-transfer>
+</data-extraction-rules>

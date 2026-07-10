@@ -47,7 +47,7 @@ object JsonValidator {
         val question = item.stringOrNull("question")?.trim().orEmpty()
         if (question.isBlank()) return null
 
-        val type = QuestionType.fromRaw(item.stringOrNull("type"))
+        val type = QuestionType.fromRawStrict(item.stringOrNull("type")) ?: return null
         val options = runCatching {
             parseOptions(type, item.get("options"))
         }.getOrDefault(emptyList())
@@ -59,6 +59,13 @@ object JsonValidator {
 
         val optionKeys = options.map { it.key }.toSet()
         if (!answer.all { it in optionKeys }) return null
+
+        // 严格不变量：题型与答案数量必须匹配
+        when (type) {
+            QuestionType.SINGLE -> if (answer.size != 1) return null
+            QuestionType.MULTIPLE -> if (answer.size < 2) return null
+            QuestionType.TRUE_FALSE -> if (answer.size != 1) return null
+        }
 
         if (type == QuestionType.TRUE_FALSE) {
             if (options.size != 2) return null
@@ -261,15 +268,7 @@ object JsonValidator {
         } else {
             listOf(element.asString)
         }
-
-        return values
-            .flatMap { answer ->
-                answer.split(",", "，", "、", " ")
-            }
-            .map { it.trim().take(1).uppercase() }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .sorted()
+        return AnswerNormalizer.normalizeFromJsonStrings(values)
     }
 
     private fun extractCompleteJsonArray(raw: String): String? {

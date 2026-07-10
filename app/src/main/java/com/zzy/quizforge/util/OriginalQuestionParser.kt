@@ -4,16 +4,21 @@ import com.zzy.quizforge.domain.model.QuestionOption
 import com.zzy.quizforge.domain.model.QuestionType
 import com.zzy.quizforge.domain.model.QuizQuestion
 
+data class FailedBlock(
+    val originalIndex: Int,
+    val text: String,
+)
+
 data class OriginalQuestionParseResult(
     val questions: List<QuizQuestion>,
-    val failedBlocks: List<String>,
+    val failedBlocks: List<FailedBlock>,
 )
 
 object OriginalQuestionParser {
     private val questionStartRegex = Regex(
         pattern = """^\s*(?:第\s*)?(?:\d{1,4}|[一二三四五六七八九十百]+)\s*(?:题|[\.．、\)、)])\s*""",
     )
-    private val optionRegex = Regex("""^\s*([A-Ha-h])\s*[\.\．、:：\)]\s*(.+)\s*$""")
+    private val optionRegex = Regex("""^\s*([A-Ha-h])\s*${OptionTextSplitter.OPTION_MARKER_CLASS}\s*(.+)\s*$""")
     private val answerRegex = Regex(
         pattern = """(?:答案|正确答案|参考答案|标准答案)\s*[:：]?\s*([A-Ha-h,\s，、]+|对|错|正确|错误|√|×)""",
     )
@@ -23,14 +28,15 @@ object OriginalQuestionParser {
     fun parse(text: String): OriginalQuestionParseResult {
         val blocks = splitBlocks(text)
         val questions = mutableListOf<QuizQuestion>()
-        val failed = mutableListOf<String>()
+        val failed = mutableListOf<FailedBlock>()
 
         blocks.forEachIndexed { index, block ->
             val parsed = parseBlock(block, index + 1)
             if (parsed != null) {
                 questions += parsed
             } else if (block.isNotBlank()) {
-                failed += block.take(500)
+                // 保留完整原始 block，不截断。长度限制由 ImportRepository 的 repair 层单独处理。
+                failed += FailedBlock(originalIndex = index, text = block)
             }
         }
 
@@ -169,31 +175,7 @@ object OriginalQuestionParser {
         )
     }
 
-    private fun normalizeAnswer(raw: String): List<String> {
-        val normalized = raw.trim()
-        val trueFalse = when (normalized) {
-            "对", "正确", "√" -> "A"
-            "错", "错误", "×" -> "B"
-            else -> null
-        }
-        if (trueFalse != null) return listOf(trueFalse)
-
-        return normalized
-            .replace("，", ",")
-            .replace("、", ",")
-            .replace(" ", "")
-            .split(",")
-            .flatMap { token ->
-                if (token.length > 1 && token.all { it.uppercaseChar() in 'A'..'H' }) {
-                    token.map { it.uppercase() }
-                } else {
-                    listOf(token.take(1).uppercase())
-                }
-            }
-            .filter { it.matches(Regex("[A-H]")) }
-            .distinct()
-            .sorted()
-    }
+    private fun normalizeAnswer(raw: String): List<String> = AnswerNormalizer.normalize(raw)
 
     private fun inferTrueFalseAnswer(block: String): List<String>? {
         val compact = block.replace("\\s".toRegex(), "")

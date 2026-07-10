@@ -14,13 +14,17 @@ import com.zzy.quizforge.data.local.toEntity
 import com.zzy.quizforge.domain.model.QuizMode
 import com.zzy.quizforge.domain.model.QuizQuestion
 import com.zzy.quizforge.util.JsonValidator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.InputStreamReader
 import kotlin.random.Random
 
 class QuizRepository(
     private val database: AppDatabase,
     private val assets: AssetManager,
+    private val filesDir: File,
 ) {
     private val gson = Gson()
 
@@ -131,8 +135,13 @@ class QuizRepository(
         return correct
     }
 
-    suspend fun clearAllData() {
+    suspend fun clearAllData() = withContext(Dispatchers.IO) {
         database.clearAllTables()
+        // clearAllTables 清除了所有题库数据，因此所有 docx-images 中的图片都不再被引用，可安全删除
+        val imageDir = File(filesDir, "docx-images")
+        if (imageDir.isDirectory) {
+            imageDir.listFiles()?.forEach { it.delete() }
+        }
         seedDefaultBankIfNeeded()
     }
 }

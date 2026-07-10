@@ -13,13 +13,34 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
-class DeepSeekApi(private val client: OkHttpClient) {
+class DeepSeekApi(
+    private val streamingClient: OkHttpClient,
+    private val repairClient: OkHttpClient,
+) {
     private val gson = Gson()
+
+    companion object {
+        /**
+         * DeepSeek API 模型名称。
+         *
+         * 使用 DeepSeek V4 系列 flash 模型。
+         * repair 属于结构整理任务，flash 模型成本更低、速度更快。
+         *
+         * 所有 API 调用方法必须通过此常量引用模型名，不得分别硬编码。
+         */
+        const val DEFAULT_MODEL = "deepseek-v4-flash"
+
+        /** 单次 repair 请求最大重试次数（不含首次调用）。 */
+        const val MAX_REPAIR_RETRIES = 2
+
+        /** 重试退避基值（毫秒）。 */
+        const val RETRY_BASE_DELAY_MS = 1000L
+    }
 
     fun streamQuestions(apiKey: String, prompt: String): Flow<String> = flow {
         val body = gson.toJson(
             mapOf(
-                "model" to "deepseek-chat",
+                "model" to DEFAULT_MODEL,
                 "stream" to true,
                 "temperature" to 0.2,
                 "max_tokens" to 65536,
@@ -39,7 +60,7 @@ class DeepSeekApi(private val client: OkHttpClient) {
             .post(body)
             .build()
 
-        client.newCall(request).execute().use { response ->
+        streamingClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IOException("DeepSeek API 请求失败：HTTP ${response.code}")
             }
@@ -68,7 +89,7 @@ class DeepSeekApi(private val client: OkHttpClient) {
             val prompt = buildRepairPrompt(blockText)
             val body = gson.toJson(
                 mapOf(
-                    "model" to "deepseek-chat",
+                    "model" to DEFAULT_MODEL,
                     "stream" to false,
                     "temperature" to 0.0,
                     "max_tokens" to 2048,
@@ -87,23 +108,67 @@ class DeepSeekApi(private val client: OkHttpClient) {
                 .post(body)
                 .build()
 
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw IOException("DeepSeek API 修复请求失败：HTTP ${response.code}")
+            executeWithRetry(request)
+        }
+
+    private fun executeWithRetry(request: Request): String {
+        var lastException: Exception? = null
+
+        for (attempt in 0..MAX_REPAIR_RETRIES) {
+            try {
+                repairClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val raw = response.body?.string().orEmpty()
+                        val content = runCatching {
+                            val root = JsonParser.parseString(raw).asJsonObject
+                            root.getAsJsonArray("choices")
+                                ?.firstOrNull()
+                                ?.asJsonObject
+                                ?.getAsJsonObject("message")
+                                ?.get("content")
+                                ?.asString
+                                .orEmpty()
+                        }.getOrDefault("")
+                        return content
+                    }
+
+                    val code = response.code
+                    val message = "DeepSeek API 修复请求失败：HTTP $code"
+                    response.close()
+
+                    if (attempt < MAX_REPAIR_RETRIES && isRetryable(code)) {
+                        val delay = RETRY_BASE_DELAY_MS * (1L shl attempt)
+                        Thread.sleep(delay)
+                        lastException = IOException(message)
+                        continue
+                    }
+                    throw IOException(message)
                 }
-                val raw = response.body?.string().orEmpty()
-                runCatching {
-                    val root = JsonParser.parseString(raw).asJsonObject
-                    root.getAsJsonArray("choices")
-                        ?.firstOrNull()
-                        ?.asJsonObject
-                        ?.getAsJsonObject("message")
-                        ?.get("content")
-                        ?.asString
-                        .orEmpty()
-                }.getOrDefault("")
+            } catch (e: IOException) {
+                lastException = e
+                if (attempt < MAX_REPAIR_RETRIES && isRetryableException(e)) {
+                    val delay = RETRY_BASE_DELAY_MS * (1L shl attempt)
+                    Thread.sleep(delay)
+                    continue
+                }
+                // 不可重试的异常直接抛出，由调用方 catch 处理
+                if (attempt >= MAX_REPAIR_RETRIES || !isRetryableException(e)) {
+                    throw e
+                }
             }
         }
+
+        throw lastException ?: IOException("DeepSeek API 修复请求失败：未知错误")
+    }
+
+    private fun isRetryable(httpCode: Int): Boolean =
+        httpCode == 429 || httpCode in 500..599
+
+    private fun isRetryableException(e: IOException): Boolean {
+        // 网络层 I/O 异常（连接超时、连接重置等）适合重试
+        // 4xx 参数/认证错误不在这个方法处理（由 HTTP code 分支处理）
+        return true
+    }
 
     private fun buildRepairPrompt(blockText: String): String =
         """

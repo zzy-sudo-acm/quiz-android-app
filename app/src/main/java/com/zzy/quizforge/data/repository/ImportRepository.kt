@@ -6,9 +6,11 @@ import com.zzy.quizforge.data.remote.DeepSeekApi
 import com.zzy.quizforge.domain.model.QuizQuestion
 import com.zzy.quizforge.util.DocumentContent
 import com.zzy.quizforge.util.DocxParser
+import com.zzy.quizforge.util.FailedBlock
 import com.zzy.quizforge.util.ImportedImage
 import com.zzy.quizforge.util.JsonValidator
 import com.zzy.quizforge.util.OriginalQuestionParser
+import com.zzy.quizforge.util.SlotAssembler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -63,7 +65,7 @@ class ImportRepository(
                 skipped = failedBlocks.size
             } else {
                 emit(ImportProgress.Log("> 开始逐段调用 DeepSeek API 修复格式...\n", 0))
-                failedBlocks.forEachIndexed { index, block ->
+                failedBlocks.forEachIndexed { index, failedBlock ->
                     val current = index + 1
                     emit(
                         ImportProgress.Segment(
@@ -73,8 +75,28 @@ class ImportRepository(
                         ),
                     )
 
+                    // 超长块（>2000 字符）可能包含合并的多道题，无法安全修复，跳过并报告
+                    if (failedBlock.text.length > 2000) {
+                        skipped += 1
+                        emit(
+                            ImportProgress.Log(
+                                "  ! 第 $current 段过长（${failedBlock.text.length} 字符），疑似多题合并，跳过 AI 修复\n",
+                                0,
+                            ),
+                        )
+                        emit(
+                            ImportProgress.SegmentDone(
+                                current = current,
+                                total = failedBlocks.size,
+                                generatedInSegment = 0,
+                                generatedSoFar = localQuestions.size + apiQuestions.size,
+                            ),
+                        )
+                        return@forEachIndexed
+                    }
+
                     val rawResponse = runCatching {
-                        api.repairBlock(apiKey, block)
+                        api.repairBlock(apiKey, failedBlock.text)
                     }.onFailure { error ->
                         emit(
                             ImportProgress.Log(
@@ -89,7 +111,9 @@ class ImportRepository(
                     }
 
                     if (repaired != null) {
-                        val withImages = listOf(repaired).attachImportedImages(documentContent.images)
+                        // 回填原始位置（1-based，与 OriginalQuestionParser 一致）
+                        val positioned = repaired.copy(originalId = failedBlock.originalIndex + 1)
+                        val withImages = listOf(positioned).attachImportedImages(documentContent.images)
                         apiQuestions += withImages.first()
                         emit(
                             ImportProgress.SegmentDone(
@@ -114,7 +138,8 @@ class ImportRepository(
             }
         }
 
-        val allQuestions = localQuestions + apiQuestions
+        // 按 originalId 排序保持 DOCX 原文顺序（委托 SlotAssembler）
+        val allQuestions = SlotAssembler.assemble(parsed, apiQuestions)
         require(allQuestions.isNotEmpty()) { "没有识别到有效原题" }
 
         val bankId = quizRepository.createBank(name, allQuestions)
@@ -136,16 +161,36 @@ class ImportRepository(
     private fun List<QuizQuestion>.attachImportedImages(images: List<ImportedImage>): List<QuizQuestion> {
         if (images.isEmpty()) return this
         return map { question ->
-            val questionImage = images.firstOrNull { question.question.contains(it.marker) }?.uri
+            val matchedImage = images.firstOrNull { question.question.contains(it.marker) }
+            val questionImage = matchedImage?.uri
+            // 只移除实际成功绑定的那个 marker，未绑定的 marker 保留作为多图能力不足的信号
+            val cleanedQuestion = if (matchedImage != null) {
+                removeSpecificMarker(question.question, matchedImage.marker)
+            } else {
+                question.question
+            }
             question.copy(
                 imageUri = question.imageUri ?: questionImage,
+                question = cleanedQuestion,
                 options = question.options.map { option ->
-                    val optionImage = images.firstOrNull { option.text.contains(it.marker) }?.uri
-                    option.copy(imageUri = option.imageUri ?: optionImage)
+                    val matchedOptionImage = images.firstOrNull { option.text.contains(it.marker) }
+                    val optionImage = matchedOptionImage?.uri
+                    val cleanedText = if (matchedOptionImage != null) {
+                        removeSpecificMarker(option.text, matchedOptionImage.marker)
+                    } else {
+                        option.text
+                    }
+                    option.copy(imageUri = option.imageUri ?: optionImage, text = cleanedText)
                 },
             )
         }
     }
+
+    /** 移除指定 marker 字符串（如 "[图片1]"），并清理多余空行。 */
+    private fun removeSpecificMarker(text: String, marker: String): String =
+        text.replace(marker, "")
+            .replace(Regex("""\n{3,}"""), "\n\n")
+            .trim()
 }
 
 sealed interface ImportProgress {

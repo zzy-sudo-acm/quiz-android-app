@@ -3,8 +3,16 @@ package com.zzy.quizforge.util
 import com.zzy.quizforge.domain.model.QuestionOption
 
 object OptionTextSplitter {
-    private val markerRegex = Regex("""([A-Ha-h])\s*[\.\．、:：\)）]\s*""")
-    private val leadingMarkerRegex = Regex("""^\s*([A-Ha-h])\s*[\.\．、:：\)）]\s*([\s\S]*)$""")
+    /**
+     * 共享选项标记分隔符集。
+     * 支持：. ． 、 : ： ) ）
+     *
+     * [com.zzy.quizforge.util.OriginalQuestionParser.optionRegex] 必须与此保持一致。
+     */
+    const val OPTION_MARKER_CLASS = """[\.\．、:：\)）]"""
+
+    private val markerRegex = Regex("""([A-Ha-h])\s*$OPTION_MARKER_CLASS\s*""")
+    private val leadingMarkerRegex = Regex("""^\s*([A-Ha-h])\s*$OPTION_MARKER_CLASS\s*([\s\S]*)$""")
 
     data class InlineOptions(
         val leadingText: String,

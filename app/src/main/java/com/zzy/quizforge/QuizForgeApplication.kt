@@ -32,16 +32,22 @@ class QuizForgeApplication : Application() {
         super.onCreate()
         database = AppDatabase.create(this)
         settingsStore = SettingsStore(this)
-        quizRepository = QuizRepository(database, assets)
+        quizRepository = QuizRepository(database, assets, filesDir)
 
         val streamingClient = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .build()
 
+        val repairClient = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .callTimeout(180, TimeUnit.SECONDS)
+            .build()
+
         importRepository = ImportRepository(
             context = this,
-            api = DeepSeekApi(streamingClient),
+            api = DeepSeekApi(streamingClient, repairClient),
             quizRepository = quizRepository,
             settingsStore = settingsStore,
         )

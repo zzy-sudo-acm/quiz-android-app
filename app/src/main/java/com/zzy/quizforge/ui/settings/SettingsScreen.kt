@@ -84,6 +84,15 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 6.dp),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (!state.isEncrypted) {
+                    Text(
+                        "⚠ 安全存储不可用，API Key 无法加密保存，已禁用保存功能。请检查设备安全设置后重试。",
+                        color = ErrorRed,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 8.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
                 OutlinedTextField(
                     value = state.apiKey,
                     onValueChange = viewModel::updateApiKey,
@@ -93,12 +102,14 @@ fun SettingsScreen(
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                     label = { Text("sk-...") },
+                    enabled = state.isEncrypted,
                 )
                 Button(
                     onClick = viewModel::saveApiKey,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 12.dp),
+                    enabled = state.isEncrypted,
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null)
                     Text("保存")
@@ -128,7 +139,7 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 14.dp),
                 )
                 Text(
-                    "deepseek-chat 价格约 ¥0.5/百万输入 token、¥2/百万输出 token。\n" +
+                    "deepseek-v4-flash 当前价格远低于主流模型。\n" +
                         "导入一份典型 Word 题库（兜底修复 30–80 段），实测消耗 ≈ 0.05–0.30 元，\n" +
                         "比开屏 5 秒广告还便宜。1 元充值能修上千道。",
                     color = TextMuted,
@@ -136,7 +147,11 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 6.dp),
                 )
                 Text(
-                    "💡 Key 保存在你手机本地（加密），不上传任何服务器。",
+                    if (state.isEncrypted) {
+                        "💡 Key 保存在你手机本地（加密），不上传任何服务器。"
+                    } else {
+                        "💡 Key 保存在你手机本地，不上传任何服务器。"
+                    },
                     color = TextMuted,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 8.dp),

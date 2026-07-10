@@ -26,7 +26,7 @@ Content-Type: application/json
 
 ```json
 {
-  "model": "deepseek-chat",
+  "model": "deepseek-v4-flash",
   "stream": false,
   "temperature": 0.0,
   "max_tokens": 2048,
