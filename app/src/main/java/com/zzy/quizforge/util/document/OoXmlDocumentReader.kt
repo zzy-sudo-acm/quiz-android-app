@@ -101,9 +101,9 @@ class OoXmlDocumentReader(
                 event == XmlPullParser.START_TAG && name == "body" -> bodyDepth = 1
                 event == XmlPullParser.END_TAG && name == "body" -> bodyDepth = 0
                 event == XmlPullParser.START_TAG && bodyDepth > 0 && name == "p" ->
-                    blocks += parseParagraph(parser, relIdToMediaId, warnings, ctx)
+                    blocks += parseParagraph(parser, imageRelIds, relIdToMediaId, warnings, ctx)
                 event == XmlPullParser.START_TAG && bodyDepth > 0 && name == "tbl" ->
-                    blocks += parseTable(parser, relIdToMediaId, warnings, ctx)
+                    blocks += parseTable(parser, imageRelIds, relIdToMediaId, warnings, ctx)
             }
         }
         return blocks
@@ -115,6 +115,7 @@ class OoXmlDocumentReader(
 
     private fun parseParagraph(
         parser: XmlPullParser,
+        imageRelIds: Set<String>,
         relIdToMediaId: Map<String, String>,
         warnings: MutableList<DocumentWarning>,
         ctx: ParseContext,
@@ -154,11 +155,18 @@ class OoXmlDocumentReader(
                             val mediaId = if (relId != null) relIdToMediaId[relId] else null
                             // Always create ImageContent — source reference node
                             content += ImageContent(mediaId = mediaId, relationshipId = relId)
-                            if (relId != null && mediaId == null) {
-                                warnings += DocumentWarning(
+                            // Warning classification (non-duplicating):
+                            when {
+                                relId == null -> warnings += DocumentWarning(
                                     DocumentWarningLevel.WARN,
-                                    "Image rId=$relId 的 media 字节未找到",
+                                    "blip 缺少 r:embed / r:link 属性"
                                 )
+                                relId !in imageRelIds -> warnings += DocumentWarning(
+                                    DocumentWarningLevel.WARN,
+                                    "Image rId=$relId 未在 document.xml.rels 中声明"
+                                )
+                                // mediaId == null with valid relId: media bytes missing,
+                                // already warned by buildMediaList — no duplicate warning here
                             }
                         }
                     }
@@ -206,6 +214,7 @@ class OoXmlDocumentReader(
 
     private fun parseTable(
         parser: XmlPullParser,
+        imageRelIds: Set<String>,
         relIdToMediaId: Map<String, String>,
         warnings: MutableList<DocumentWarning>,
         ctx: ParseContext,
@@ -220,7 +229,7 @@ class OoXmlDocumentReader(
             val name = parser.name?.substringAfter(':')
             when {
                 event == XmlPullParser.START_TAG && name == "tr" ->
-                    rows += parseTableRow(parser, relIdToMediaId, warnings, ctx)
+                    rows += parseTableRow(parser, imageRelIds, relIdToMediaId, warnings, ctx)
                 event == XmlPullParser.START_TAG && name == "tbl" -> depth++
                 event == XmlPullParser.END_TAG && name == "tbl" -> depth--
             }
@@ -231,6 +240,7 @@ class OoXmlDocumentReader(
 
     private fun parseTableRow(
         parser: XmlPullParser,
+        imageRelIds: Set<String>,
         relIdToMediaId: Map<String, String>,
         warnings: MutableList<DocumentWarning>,
         ctx: ParseContext,
@@ -243,7 +253,7 @@ class OoXmlDocumentReader(
             val name = parser.name?.substringAfter(':')
             when {
                 event == XmlPullParser.START_TAG && name == "tc" ->
-                    cells += parseTableCell(parser, relIdToMediaId, warnings, ctx)
+                    cells += parseTableCell(parser, imageRelIds, relIdToMediaId, warnings, ctx)
                 event == XmlPullParser.START_TAG && name == "tr" -> depth++
                 event == XmlPullParser.END_TAG && name == "tr" -> depth--
             }
@@ -254,6 +264,7 @@ class OoXmlDocumentReader(
 
     private fun parseTableCell(
         parser: XmlPullParser,
+        imageRelIds: Set<String>,
         relIdToMediaId: Map<String, String>,
         warnings: MutableList<DocumentWarning>,
         ctx: ParseContext,
@@ -266,9 +277,9 @@ class OoXmlDocumentReader(
             val name = parser.name?.substringAfter(':')
             when {
                 event == XmlPullParser.START_TAG && name == "p" ->
-                    blocks += parseParagraph(parser, relIdToMediaId, warnings, ctx)
+                    blocks += parseParagraph(parser, imageRelIds, relIdToMediaId, warnings, ctx)
                 event == XmlPullParser.START_TAG && name == "tbl" ->
-                    blocks += parseTable(parser, relIdToMediaId, warnings, ctx)
+                    blocks += parseTable(parser, imageRelIds, relIdToMediaId, warnings, ctx)
                 event == XmlPullParser.START_TAG && name == "tc" -> depth++
                 event == XmlPullParser.END_TAG && name == "tc" -> depth--
             }

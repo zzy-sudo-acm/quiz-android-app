@@ -388,6 +388,124 @@ class OoXmlDocumentReaderTest {
         val s = DocumentDebugDump.summary(doc)
         assertTrue(s.contains("2 blocks"))
     }
+
+    // ═══════════════════════════════════════════════════════════
+    // 19–24. pPrDepth targeted regressions — must not lose blocks after numbered paragraph
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `numbered paragraph followed by simple paragraph`() {
+        val doc = read(
+            DocxFixtureBuilder()
+                .numberingXml(decimalNumberingXml(numId = 1, abstractNumId = 0))
+                .documentXml(numberedParagraph("编号", numId = 1) + simpleParagraph("普通"))
+        )
+        assertEquals(2, doc.blocks.size)
+    }
+
+    @Test
+    fun `numbered paragraph followed by image paragraph`() {
+        val doc = read(
+            DocxFixtureBuilder()
+                .numberingXml(decimalNumberingXml(numId = 1, abstractNumId = 0))
+                .imageRels(imageRelationshipXml("rId1", "media/img1.png"))
+                .media("word/media/img1.png", minimalPngBytes())
+                .documentXml(numberedParagraph("编号", numId = 1) + paragraphWithImage("rId1", "图", "文"))
+        )
+        assertEquals(2, doc.blocks.size)
+    }
+
+    @Test
+    fun `image paragraph followed by table`() {
+        val doc = read(
+            DocxFixtureBuilder()
+                .imageRels(imageRelationshipXml("rId1", "media/img1.png"))
+                .media("word/media/img1.png", minimalPngBytes())
+                .documentXml(paragraphWithImage("rId1", "图", "文") + simpleTable(listOf("A", "B", "C", "D")))
+        )
+        assertEquals(2, doc.blocks.size)
+    }
+
+    @Test
+    fun `numbered plus simple paragraph diagnostic`() {
+        val doc = read(
+            DocxFixtureBuilder()
+                .numberingXml(decimalNumberingXml(numId = 1, abstractNumId = 0))
+                .documentXml(numberedParagraph("编号", numId = 1) + simpleParagraph("普通"))
+        )
+        val msg = "Got ${doc.blocks.size} blocks: ${doc.blocks.map { "${it::class.simpleName}(${it.sourceId}, order=${it.sourceOrder})" }}"
+        assertEquals(msg, 2, doc.blocks.size)
+    }
+
+    @Test
+    fun `paragraph with empty pPr followed by simple paragraph`() {
+        val xml = """<w:p><w:pPr></w:pPr><w:r><w:t xml:space="preserve">有属性</w:t></w:r></w:p>"""
+        val doc = read(DocxFixtureBuilder().documentXml(xml + simpleParagraph("普通")))
+        assertEquals("Got ${doc.blocks.size} blocks", 2, doc.blocks.size)
+    }
+
+    @Test
+    fun `paragraph with pPr and rPr followed by simple paragraph`() {
+        val xml = """<w:p><w:pPr><w:rPr><w:b></w:b></w:rPr></w:pPr><w:r><w:t xml:space="preserve">粗体</w:t></w:r></w:p>"""
+        val doc = read(DocxFixtureBuilder().documentXml(xml + simpleParagraph("普通")))
+        assertEquals(2, doc.blocks.size)
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // 25–27. Image warning classification — non-duplicating
+    // ═══════════════════════════════════════════════════════════
+
+    @Test
+    fun `blip without embed or link preserves ImageContent and produces warning`() {
+        // Raw paragraph XML with a:blip that has no r:embed attribute
+        val xml = """<w:p><w:r><w:t xml:space="preserve">前</w:t></w:r><w:r><w:drawing><wp:inline><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:blipFill><a:blip/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r><w:r><w:t xml:space="preserve">后</w:t></w:r></w:p>"""
+        val doc = read(DocxFixtureBuilder().documentXml(xml))
+
+        val p = doc.blocks[0] as ParagraphBlock
+        assertEquals(3, p.content.size)
+        val img = p.content[1] as ImageContent
+        assertNull(img.mediaId)
+        assertNull(img.relationshipId)
+
+        // Must produce warning about missing embed/link
+        assertTrue(doc.warnings.any { it.message.contains("embed") || it.message.contains("link") })
+    }
+
+    @Test
+    fun `undeclared image relationship preserves ImageContent and produces warning`() {
+        // rId99 is NOT declared in rels — the .imageRels() call is intentionally absent
+        val doc = read(
+            DocxFixtureBuilder()
+                .documentXml(paragraphWithImage("rId99", "前", "后"))
+        )
+        val p = doc.blocks[0] as ParagraphBlock
+        assertEquals(3, p.content.size)
+        val img = p.content[1] as ImageContent
+        assertNull(img.mediaId)
+        assertEquals("rId99", img.relationshipId)
+
+        // Must produce warning about undeclared relationship
+        assertTrue(doc.warnings.any { it.message.contains("rId99") && it.message.contains("rels") })
+    }
+
+    @Test
+    fun `missing media bytes produces exactly one non-duplicated warning`() {
+        // rId7 IS declared in rels but media file is NOT provided
+        val doc = read(
+            DocxFixtureBuilder()
+                .imageRels(imageRelationshipXml("rId7", "media/missing.png"))
+                .documentXml(paragraphWithImage("rId7", "前", "后"))
+        )
+        val p = doc.blocks[0] as ParagraphBlock
+        assertEquals(3, p.content.size)
+        val img = p.content[1] as ImageContent
+        assertNull(img.mediaId)
+        assertEquals("rId7", img.relationshipId)
+
+        // buildMediaList warns once. parseParagraph must NOT add a duplicate.
+        val mediaWarnings = doc.warnings.filter { it.message.contains("rId7") }
+        assertEquals("Should have exactly 1 warning for rId7, got ${mediaWarnings.map { it.message }}", 1, mediaWarnings.size)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
