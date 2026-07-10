@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -17,6 +18,7 @@ data class ImportUiState(
     val fileName: String = "",
     val bankName: String = "",
     val documentContent: DocumentContent? = null,
+    val selectedUri: android.net.Uri? = null,
     val isReading: Boolean = false,
     val isGenerating: Boolean = false,
     val statusText: String = "请选择 .docx 文件",
@@ -30,6 +32,8 @@ data class ImportUiState(
 ) {
     val canGenerate: Boolean
         get() = documentContent?.text?.isNotBlank() == true && bankName.isNotBlank() && !isGenerating && !isReading
+    val canGenerateV2: Boolean
+        get() = selectedUri != null && bankName.isNotBlank() && !isGenerating && !isReading
 }
 
 class ImportViewModel(
@@ -43,6 +47,7 @@ class ImportViewModel(
     }
 
     fun readDocument(uri: Uri, displayName: String) {
+        _uiState.update { it.copy(selectedUri = uri) }
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.update {
                 it.copy(
@@ -73,6 +78,32 @@ class ImportViewModel(
                         )
                     }
                 }
+        }
+    }
+
+    /** V2 import via importFromUri with SHADOW strategy (legacy user-visible, new pipeline comparison). */
+    fun generateV2() {
+        val state = _uiState.value
+        val uri = state.selectedUri ?: return
+        if (!state.canGenerateV2) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isGenerating = true, generatedBankId = null, error = null, statusText = "Importing...") }
+            repository.importFromUri(
+                name = state.bankName.ifBlank { "导入题库" },
+                uri = uri,
+                strategy = com.zzy.quizforge.util.document.ImportStrategy.SHADOW,
+            ).catch { error: Throwable ->
+                _uiState.update { it.copy(isGenerating = false, error = error.message ?: "导入失败", statusText = "导入失败") }
+            }.collect { progress ->
+                when (progress) {
+                    is ImportProgress.Log -> _uiState.update { it.copy(statusText = progress.text.trim().ifBlank { it.statusText }) }
+                    is ImportProgress.Segment -> _uiState.update { it.copy(statusText = "修复 ${progress.current}/${progress.total}...", repairProgress = "已入库 ${progress.generatedSoFar}") }
+                    is ImportProgress.SegmentDone -> _uiState.update { it.copy(statusText = "修复 ${progress.current}/${progress.total}", repairProgress = "已入库 ${progress.generatedSoFar}") }
+                    is ImportProgress.Done -> _uiState.update { it.copy(isGenerating = false, generatedBankId = progress.bankId, generatedCount = progress.count, localCount = progress.localCount, apiCount = progress.apiCount, statusText = progress.message) }
+                    is ImportProgress.Error -> _uiState.update { it.copy(isGenerating = false, error = progress.message, statusText = "导入失败") }
+                }
+            }
         }
     }
 

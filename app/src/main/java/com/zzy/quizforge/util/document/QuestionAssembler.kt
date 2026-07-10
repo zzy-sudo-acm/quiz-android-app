@@ -1,90 +1,77 @@
 package com.zzy.quizforge.util.document
 
-/**
- * QuestionAssembler: builds StructuredQuestionDraft from validated annotations + SourceProjections.
- *
- * Does NOT re-segment. Does NOT guess question boundaries.
- * Input annotations and segment structures are assumed valid.
- */
 object QuestionAssembler {
 
     fun assemble(
         segment: QuestionSegment,
         document: StructuredDocument,
-        deterministic: SegmentLabelingResult,
-        aiAnnotations: List<StructureAnnotation> = emptyList(),
+        labeling: SegmentLabelingResult,
     ): StructuredQuestionDraft {
         val warnings = mutableListOf<String>()
         val blockMap = document.blocks.associateBy { it.sourceId }
-        val projections = deterministic.sourceProjections +
-            aiAnnotations.associate { it.sourceId to blockMap[it.sourceId] }.mapValues {
-                SourceProjection.from(it.value ?: return@mapValues SourceProjection("", emptyList(), it.key, -1))
-            }
+        val projections = labeling.sourceProjections
+        val annotations = labeling.annotations
+        val mediaById: Map<String, DocumentMedia> = document.media.associateBy { it.mediaId }
 
-        val allAnnotations = deterministic.annotations + aiAnnotations
-
-        // Collect stem slices
-        val stemSlices = mutableListOf<TextSlice>()
-        for (ann in allAnnotations.filter { it.label == AnnotationLabel.STEM }.sortedBy { it.sourceOrder }) {
-            val proj = projections[ann.sourceId] ?: continue
-            val text = proj.substring(ann.startOffset, ann.endOffset)
-            if (text.isNotBlank()) {
-                stemSlices += TextSlice(ann.sourceId, ann.sourceOrder, text, ann.label)
-            }
+        // Collect slices
+        val stemSlices = annotations.filter { it.label == AnnotationLabel.STEM }.sortedBy { it.sourceOrder }.mapNotNull { a ->
+            val p = projections[a.sourceId] ?: return@mapNotNull null
+            val t = p.substring(a.startOffset, a.endOffset)
+            if (t.isNotBlank()) TextSlice(a.sourceId, a.sourceOrder, t, a.label) else null
         }
 
-        // Collect option slices by key
-        val optionSlices = mutableListOf<OptionSlice>()
-        for (ann in allAnnotations.filter { it.label == AnnotationLabel.OPTION }.sortedWith(compareBy({ it.sourceOrder }, { it.startOffset }))) {
-            val proj = projections[ann.sourceId] ?: continue
-            val text = proj.substring(ann.startOffset, ann.endOffset).trim()
-            optionSlices += OptionSlice(
-                sourceId = ann.sourceId,
-                sourceOrder = ann.sourceOrder,
-                key = ann.optionKey ?: "?",
-                text = text,
-            )
+        val optionSlices = annotations.filter { it.label == AnnotationLabel.OPTION }
+            .sortedWith(compareBy({ it.sourceOrder }, { it.startOffset })).map { a ->
+                val p = projections[a.sourceId] ?: return@map OptionSlice("",-1,"?","")
+                OptionSlice(a.sourceId, a.sourceOrder, a.optionKey ?: "?", p.substring(a.startOffset, a.endOffset).trim())
+            }
+
+        val answerSlices = annotations.filter { it.label == AnnotationLabel.ANSWER }.sortedBy { it.sourceOrder }.map { a ->
+            val p = projections[a.sourceId] ?: return@map TextSlice("",-1,"",a.label)
+            TextSlice(a.sourceId, a.sourceOrder, p.substring(a.startOffset, a.endOffset), a.label)
         }
 
-        // Collect answer slices
-        val answerSlices = allAnnotations.filter { it.label == AnnotationLabel.ANSWER }
-            .sortedBy { it.sourceOrder }
-            .map { ann ->
-                val proj = projections[ann.sourceId] ?: return@map TextSlice("", -1, "", ann.label)
-                TextSlice(ann.sourceId, ann.sourceOrder, proj.substring(ann.startOffset, ann.endOffset), ann.label)
-            }
+        val explanationSlices = annotations.filter { it.label == AnnotationLabel.EXPLANATION }.sortedBy { it.sourceOrder }.map { a ->
+            val p = projections[a.sourceId] ?: return@map TextSlice("",-1,"",a.label)
+            TextSlice(a.sourceId, a.sourceOrder, p.substring(a.startOffset, a.endOffset), a.label)
+        }
 
-        // Collect explanation slices
-        val explanationSlices = allAnnotations.filter { it.label == AnnotationLabel.EXPLANATION }
-            .sortedBy { it.sourceOrder }
-            .map { ann ->
-                val proj = projections[ann.sourceId] ?: return@map TextSlice("", -1, "", ann.label)
-                TextSlice(ann.sourceId, ann.sourceOrder, proj.substring(ann.startOffset, ann.endOffset), ann.label)
-            }
-
-        // Collect image refs
+        // Resolve image ownership
         val imageRefs = mutableListOf<ImageRef>()
         val tableRefs = mutableListOf<TableRef>()
+        val segmentSourceIds = segment.sourceIds.toSet()
+
         for (sourceId in segment.sourceIds) {
             val block = blockMap[sourceId] ?: continue
+            val proj = projections[sourceId] ?: SourceProjection.from(block)
+            val sourceAnns = annotations.filter { it.sourceId == sourceId }
+
             when (block) {
                 is ParagraphBlock -> {
-                    for (inline in block.content) {
-                        if (inline is ImageContent) {
-                            imageRefs += ImageRef(inline.mediaId, inline.relationshipId, sourceId)
-                        }
+                    for ((idx, inline) in block.content.withIndex()) {
+                        if (inline !is ImageContent) continue
+                        val offset = proj.inlineOffsets.getOrNull(idx)
+                        val charStart = offset?.charStart ?: -1
+                        val owner = resolveOwner(charStart, sourceAnns)
+                        val localPath = inline.mediaId?.let { mediaById[it]?.localPath }
+                        imageRefs += ImageRef(
+                            inline.mediaId, inline.relationshipId, sourceId,
+                            sourceOrder = block.sourceOrder, inlineIndex = idx,
+                            charOffset = charStart, owner = owner,
+                            resolvedLocalPath = localPath,
+                        )
                     }
                 }
                 is TableBlock -> {
                     tableRefs += TableRef(sourceId, block.sourceOrder)
-                    for (row in block.rows) for (cell in row.cells) {
-                        for (cb in cell.blocks) {
-                            if (cb is ParagraphBlock) {
-                                for (inline in cb.content) {
-                                    if (inline is ImageContent) {
-                                        imageRefs += ImageRef(inline.mediaId, inline.relationshipId, cb.sourceId,
-                                            owner = ImageOwner.TableCell)
-                                    }
+                    for (row in block.rows) for (cell in row.cells) for (cb in cell.blocks) {
+                        if (cb is ParagraphBlock) {
+                            for ((idx, inline) in cb.content.withIndex()) {
+                                if (inline is ImageContent) {
+                                    imageRefs += ImageRef(inline.mediaId, inline.relationshipId, cb.sourceId,
+                                        sourceOrder = cb.sourceOrder, inlineIndex = idx,
+                                        owner = ImageOwner.TableCell,
+                                    )
                                 }
                             }
                         }
@@ -93,10 +80,18 @@ object QuestionAssembler {
             }
         }
 
-        // Determine representability
-        val stemImageCount = imageRefs.filter { it.owner !is ImageOwner.TableCell }.count { it.owner is ImageOwner.Stem || it.owner is ImageOwner.Unbound }
+        // Fill OptionSlice imageRefs
+        val optionSlicesWithImages = optionSlices.map { slice ->
+            val imgs = imageRefs.filter { it.owner is ImageOwner.Option && (it.owner as ImageOwner.Option).key == slice.key }
+            slice.copy(imageRefs = imgs)
+        }
+
+        // Representability
+        val hasUnbound = imageRefs.any { it.owner is ImageOwner.Unbound }
+        val stemImageCount = imageRefs.count { it.owner is ImageOwner.Stem }
         val representability = when {
             tableRefs.isNotEmpty() -> Representability.LOSSY
+            hasUnbound -> Representability.LOSSY
             stemImageCount > 1 -> Representability.LOSSY
             else -> Representability.REPRESENTABLE
         }
@@ -104,16 +99,33 @@ object QuestionAssembler {
         return StructuredQuestionDraft(
             segmentId = segment.segmentId,
             originalQuestionNumber = segment.originalQuestionNumber,
-            stemSlices = stemSlices,
-            optionSlices = optionSlices,
-            answerSlices = answerSlices,
-            explanationSlices = explanationSlices,
-            typeHint = null,
-            sourceIdsConsumed = segment.sourceIds,
-            imageRefs = imageRefs,
-            tableRefs = tableRefs,
-            warnings = warnings,
-            representability = representability,
+            stemSlices = stemSlices, optionSlices = optionSlicesWithImages,
+            answerSlices = answerSlices, explanationSlices = explanationSlices,
+            typeHint = null, sourceIdsConsumed = segment.sourceIds,
+            imageRefs = imageRefs, tableRefs = tableRefs,
+            warnings = warnings, representability = representability,
         )
+    }
+
+    private fun resolveOwner(charOffset: Int, annotations: List<StructureAnnotation>): ImageOwner {
+        if (charOffset < 0) return ImageOwner.Unbound
+        val matching = annotations.filter { charOffset >= it.startOffset && charOffset < it.endOffset }
+        return when {
+            matching.size == 1 -> when (matching[0].label) {
+                AnnotationLabel.STEM -> ImageOwner.Stem
+                AnnotationLabel.OPTION -> ImageOwner.Option(matching[0].optionKey ?: "?")
+                else -> ImageOwner.Unbound
+            }
+            // Zero-width image at annotation boundary: use the annotation that starts at this position
+            matching.isEmpty() -> {
+                val atBoundary = annotations.filter { it.startOffset == charOffset }
+                if (atBoundary.size == 1) when (atBoundary[0].label) {
+                    AnnotationLabel.STEM -> ImageOwner.Stem
+                    AnnotationLabel.OPTION -> ImageOwner.Option(atBoundary[0].optionKey ?: "?")
+                    else -> ImageOwner.Unbound
+                } else ImageOwner.Unbound
+            }
+            else -> ImageOwner.Unbound
+        }
     }
 }

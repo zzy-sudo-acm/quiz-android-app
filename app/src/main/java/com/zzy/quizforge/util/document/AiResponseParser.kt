@@ -31,9 +31,10 @@ object AiResponseParser {
 
             if (sid == null || !sid.isJsonPrimitive || !sid.asJsonPrimitive.isString) { errors += "annotations[$i]: sourceId not string"; continue }
             if (lbl == null || !lbl.isJsonPrimitive || !lbl.asJsonPrimitive.isString) { errors += "annotations[$i]: label not string"; continue }
-            if (so == null || !so.isJsonPrimitive || !so.asJsonPrimitive.isNumber) { errors += "annotations[$i]: startOffset not int"; continue }
-            if (eo == null || !eo.isJsonPrimitive || !eo.asJsonPrimitive.isNumber) { errors += "annotations[$i]: endOffset not int"; continue }
-            if (ok != null && (!ok.isJsonPrimitive || !ok.asJsonPrimitive.isString)) { errors += "annotations[$i]: optionKey not string|null"; continue }
+            if (so == null || !so.isJsonPrimitive || !so.asJsonPrimitive.isNumber || so.asJsonPrimitive.asNumber.toDouble() % 1 != 0.0) { errors += "annotations[$i]: startOffset not integer"; continue }
+            if (eo == null || !eo.isJsonPrimitive || !eo.asJsonPrimitive.isNumber || eo.asJsonPrimitive.asNumber.toDouble() % 1 != 0.0) { errors += "annotations[$i]: endOffset not integer"; continue }
+            // optionKey: null (not present), JSON null, or string are all valid
+            if (ok != null && !ok.isJsonNull && (!ok.isJsonPrimitive || !ok.asJsonPrimitive.isString)) { errors += "annotations[$i]: optionKey not string|null"; continue }
 
             raw += RawAiAnnotation(sid.asString, lbl.asString, so.asInt, eo.asInt, ok?.asString)
         }

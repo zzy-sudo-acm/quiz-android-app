@@ -82,12 +82,15 @@ class ImportRepository(
                     // Find legacy questions for comparison
                     val legacyQuestions = quizRepository.getQuestions(legacyResult!!.bankId, com.zzy.quizforge.domain.model.QuizMode.SEQUENTIAL)
                     val comparison = ShadowComparator.compare(legacyQuestions, newResult)
-                    emit(ImportProgress.Log("Shadow: legacy=${comparison.legacyCount} new=${comparison.newCount} orderMatch=${comparison.orderMatch}\n", 0))
+                    val cmp = comparison
+                    emit(ImportProgress.Log("Shadow: L=${cmp.legacyCount} N=${cmp.newCount} orderMatch=${cmp.orderMatch} idMatch=${cmp.idSequenceMatch} idMismatch=${cmp.idMismatches.size} stemMismatch=${cmp.stemMismatches.size} ansMismatch=${cmp.answerMismatches.size} optMismatch=${cmp.optionKeyMismatches.size} imgMismatch=${cmp.imagePresenceMismatches.size} newRejected=${cmp.newRejectedCount} unassigned=${cmp.newUnassignedCount} lossy=${cmp.lossyCount}\n", 0))
                 }.onFailure { e ->
                     emit(ImportProgress.Log("Shadow comparison failed: ${e.message}\n", 0))
                 }
             }
         }
+    }.catch { error ->
+        emit(ImportProgress.Error(error.message ?: "导入失败"))
     }.flowOn(Dispatchers.IO)
 
     /**

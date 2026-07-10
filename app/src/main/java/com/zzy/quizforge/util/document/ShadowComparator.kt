@@ -3,47 +3,51 @@ package com.zzy.quizforge.util.document
 import com.zzy.quizforge.domain.model.QuizQuestion
 
 data class ShadowComparisonResult(
-    val legacyCount: Int,
-    val newCount: Int,
+    val legacyCount: Int, val newCount: Int,
     val orderMatch: Boolean,
-    val originalIdMismatches: List<String>,
+    val idSequenceMatch: Boolean,
+    val idMismatches: List<String>,
     val stemMismatches: List<String>,
     val answerMismatches: List<String>,
     val optionKeyMismatches: List<String>,
-    val newRejectedCount: Int,
-    val newUnassignedCount: Int,
-    val lossyCount: Int,
+    val imagePresenceMismatches: List<String>,
+    val newRejectedCount: Int, val newUnassignedCount: Int, val lossyCount: Int,
     val warningsSummary: List<String>,
 )
 
 object ShadowComparator {
-    fun compare(
-        legacyQuestions: List<QuizQuestion>,
-        newResult: NewPipelineResult,
-        legacySkipped: Int = 0,
-    ): ShadowComparisonResult {
-        val orderMatch = legacyQuestions.size == newResult.questions.size
+    fun compare(legacy: List<QuizQuestion>, newResult: NewPipelineResult): ShadowComparisonResult {
+        val new = newResult.questions
         val idMismatches = mutableListOf<String>()
         val stemMismatches = mutableListOf<String>()
         val answerMismatches = mutableListOf<String>()
         val optMismatches = mutableListOf<String>()
+        val imgMismatches = mutableListOf<String>()
 
-        for (i in 0 until minOf(legacyQuestions.size, newResult.questions.size)) {
-            val lq = legacyQuestions[i]; val nq = newResult.questions[i]
-            if (lq.originalId != nq.originalId) idMismatches += "idx=$i: legacy=${lq.originalId} new=${nq.originalId}"
-            if (lq.question.trim() != nq.question.trim()) stemMismatches += "idx=$i"
-            if (lq.answer != nq.answer) answerMismatches += "idx=$i"
-            if (lq.options.map { it.key } != nq.options.map { it.key }) optMismatches += "idx=$i"
+        // Real order: compare originalId sequences
+        val legacyIds = legacy.map { it.originalId }
+        val newIds = new.map { it.originalId }
+        val idSequenceMatch = legacyIds == newIds
+
+        for (i in 0 until minOf(legacy.size, new.size)) {
+            val l = legacy[i]; val n = new[i]
+            if (l.originalId != n.originalId) idMismatches += "idx=$i: L=${l.originalId} N=${n.originalId}"
+            if (l.question.trim() != n.question.trim()) stemMismatches += "idx=$i"
+            if (l.answer != n.answer) answerMismatches += "idx=$i"
+            val lk = l.options.map { it.key }.toSet(); val nk = n.options.map { it.key }.toSet()
+            if (lk != nk) optMismatches += "idx=$i: L=$lk N=$nk"
+            val lImg = l.imageUri != null || l.options.any { it.imageUri != null }
+            val nImg = n.imageUri != null || n.options.any { it.imageUri != null }
+            if (lImg != nImg) imgMismatches += "idx=$i"
         }
 
         return ShadowComparisonResult(
-            legacyCount = legacyQuestions.size,
-            newCount = newResult.questions.size,
-            orderMatch = orderMatch,
-            originalIdMismatches = idMismatches,
-            stemMismatches = stemMismatches,
-            answerMismatches = answerMismatches,
-            optionKeyMismatches = optMismatches,
+            legacyCount = legacy.size, newCount = new.size,
+            orderMatch = legacy.size == new.size && idSequenceMatch,
+            idSequenceMatch = idSequenceMatch,
+            idMismatches = idMismatches, stemMismatches = stemMismatches,
+            answerMismatches = answerMismatches, optionKeyMismatches = optMismatches,
+            imagePresenceMismatches = imgMismatches,
             newRejectedCount = newResult.rejectedCount,
             newUnassignedCount = newResult.unassignedCount,
             lossyCount = newResult.lossyCount,
