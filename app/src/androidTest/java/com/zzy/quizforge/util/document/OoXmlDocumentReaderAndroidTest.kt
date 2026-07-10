@@ -6,39 +6,144 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmlpull.v1.XmlPullParserFactory
 
-/**
- * Android instrumentation test: 使用 production OoXmlDocumentReader() 读取真实 DOCX ZIP fixture。
- *
- * 验证 Android 实际 XmlPullParser 的 runtime semantics。
- */
 @RunWith(AndroidJUnit4::class)
 class OoXmlDocumentReaderAndroidTest {
 
     // ═══════════════════════════════════════════════════════════
-    // Production parser path
+    // Parser class identity
     // ═══════════════════════════════════════════════════════════
 
     @Test
     fun reportParserClass() {
         val factory = XmlPullParserFactory.newInstance()
         val parser = factory.newPullParser()
-        val className = parser.javaClass.name
-        // Record the actual parser class name used at runtime
-        println("ANDROID_XPP_CLASS=$className")
-        assertTrue("Parser class should be non-empty", className.isNotEmpty())
+        println("ANDROID_XPP_CLASS=${parser.javaClass.name}")
+        assertTrue(parser.javaClass.name.isNotEmpty())
     }
 
     // ═══════════════════════════════════════════════════════════
-    // Full mixed fixture read via production reader
+    // Full mixed fixture via production reader
     // ═══════════════════════════════════════════════════════════
 
     @Test
     fun productionReaderMixedFixture() {
-        val reader = OoXmlDocumentReader() // default Android factory
+        val reader = OoXmlDocumentReader()
+        val entries = buildFixture()
+        val doc = reader.read(entries)
 
+        // 1. Top-level blocks: P, P, Table, P
+        assertEquals(4, doc.blocks.size)
+        assertTrue(doc.blocks[0] is ParagraphBlock)
+        assertTrue(doc.blocks[1] is ParagraphBlock)
+        assertTrue(doc.blocks[2] is TableBlock)
+        assertTrue(doc.blocks[3] is ParagraphBlock)
+
+        // 2. Numbered paragraph
+        val b0 = doc.blocks[0] as ParagraphBlock
+        assertNotNull(b0.numbering)
+        assertEquals("3", b0.numbering!!.numId)
+        assertEquals(0, b0.numbering.level)
+
+        // 3. Image paragraph — 5 inline items
+        val b1 = doc.blocks[1] as ParagraphBlock
+        assertEquals(5, b1.content.size)
+        assertEquals("比较", (b1.content[0] as TextContent).text)
+        assertTrue(b1.content[1] is ImageContent)
+        assertNotNull((b1.content[1] as ImageContent).mediaId)
+        assertEquals("与", (b1.content[2] as TextContent).text)
+        assertTrue(b1.content[3] is ImageContent)
+        assertNotNull((b1.content[3] as ImageContent).mediaId)
+        assertEquals("的区别", (b1.content[4] as TextContent).text)
+        assertNotEquals(
+            (b1.content[1] as ImageContent).mediaId,
+            (b1.content[3] as ImageContent).mediaId,
+        )
+
+        // 4. Table 2×2
+        val b2 = doc.blocks[2] as TableBlock
+        assertEquals(2, b2.rows.size)
+        assertEquals(2, b2.rows[0].cells.size)
+        assertEquals(2, b2.rows[1].cells.size)
+
+        // 5. Tail paragraph not swallowed
+        val b3 = doc.blocks[3] as ParagraphBlock
+        assertEquals("尾段正常段落", b3.content.filterIsInstance<TextContent>().joinToString("") { it.text })
+
+        // 6. Numbering definitions
+        assertEquals(1, doc.numberingDefinitions.size)
+        val numDef = doc.numberingDefinitions["3"]
+        assertNotNull(numDef)
+        assertEquals("7", numDef!!.abstractNumId)
+        val lvl = numDef.levels[0]
+        assertNotNull(lvl)
+        assertEquals("decimal", lvl!!.numFmt)
+        assertEquals("%1.", lvl.lvlText)
+        assertEquals(1, lvl.start)
+
+        // 7. EXACT DFS sourceOrder sequence
+        val allBlocks = collectAllBlocks(doc.blocks)
+        val orders = allBlocks.map { it.sourceOrder }
+        assertEquals(
+            "sourceOrder must be exact DFS traversal sequence: 0,1,2,...",
+            (0 until allBlocks.size).toList(),
+            orders,
+        )
+
+        // 8. Global sourceOrder uniqueness and >= 0
+        assertEquals(orders.size, orders.toSet().size)
+        orders.forEach { assertTrue(it >= 0) }
+
+        // 9. Global sourceId uniqueness (including cell blocks)
+        val ids = allBlocks.map { it.sourceId }
+        assertEquals("All sourceIds must be unique", ids.size, ids.toSet().size)
+
+        // 10. No [图片N] placeholders
+        for (block in doc.blocks) {
+            collectTexts(block).forEach { text ->
+                assertFalse(text.contains("[图片"))
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Helpers
+    // ═══════════════════════════════════════════════════════════
+
+    private fun collectAllBlocks(blocks: List<DocumentBlock>): List<DocumentBlock> {
+        val all = mutableListOf<DocumentBlock>()
+        for (b in blocks) {
+            all += b
+            if (b is TableBlock) {
+                for (row in b.rows) for (cell in row.cells) {
+                    all += collectAllBlocks(cell.blocks)
+                }
+            }
+        }
+        return all
+    }
+
+    private fun collectTexts(block: DocumentBlock): List<String> {
+        val texts = mutableListOf<String>()
+        if (block is ParagraphBlock) {
+            for (c in block.content) {
+                if (c is TextContent) texts += c.text
+            }
+        }
+        if (block is TableBlock) {
+            for (row in block.rows) for (cell in row.cells) {
+                for (cb in cell.blocks) texts += collectTexts(cb)
+            }
+        }
+        return texts
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Fixture
+    // ═══════════════════════════════════════════════════════════
+
+    private fun buildFixture(): Map<String, ByteArray> {
         val entries = mutableMapOf<String, ByteArray>()
 
-        // Content_Types
         entries["[Content_Types].xml"] = """
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
             <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -49,7 +154,6 @@ class OoXmlDocumentReaderAndroidTest {
             </Types>
         """.trimIndent().toByteArray()
 
-        // _rels/.rels
         entries["_rels/.rels"] = """
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
             <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -57,7 +161,6 @@ class OoXmlDocumentReaderAndroidTest {
             </Relationships>
         """.trimIndent().toByteArray()
 
-        // Image relationships
         entries["word/_rels/document.xml.rels"] = """
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
             <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -66,7 +169,6 @@ class OoXmlDocumentReaderAndroidTest {
             </Relationships>
         """.trimIndent().toByteArray()
 
-        // Numbering
         entries["word/numbering.xml"] = """
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
             <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
@@ -83,129 +185,18 @@ class OoXmlDocumentReaderAndroidTest {
             </w:numbering>
         """.trimIndent().toByteArray()
 
-        // Media — two different PNG bytes
         entries["word/media/img1.png"] = minimalPng(0x01)
         entries["word/media/img2.png"] = minimalPng(0x02)
 
-        // Document XML
-        val bodyXml = numberedParagraph("编号段落", numId = 3) +
-            paragraphWithTwoImages("rId1", "rId2") +
-            simpleTable() +
-            simpleParagraph("尾段正常段落")
+        entries["word/document.xml"] = wrapDocument(
+            numberedParagraph("编号段落", numId = 3) +
+                paragraphWithTwoImages("rId1", "rId2") +
+                simpleTable() +
+                simpleParagraph("尾段正常段落")
+        )
 
-        entries["word/document.xml"] = wrapDocument(bodyXml)
-
-        // Read via PRODUCTION reader
-        val doc = reader.read(entries)
-
-        // ═══════════════════════════════════════════════
-        // Assertions
-        // ═══════════════════════════════════════════════
-
-        // 1. Top-level blocks: P, P, Table, P
-        assertEquals("Should have 4 top-level blocks", 4, doc.blocks.size)
-        assertTrue("Block 0: ParagraphBlock", doc.blocks[0] is ParagraphBlock)
-        assertTrue("Block 1: ParagraphBlock", doc.blocks[1] is ParagraphBlock)
-        assertTrue("Block 2: TableBlock", doc.blocks[2] is TableBlock)
-        assertTrue("Block 3: ParagraphBlock", doc.blocks[3] is ParagraphBlock)
-
-        // 2. Numbered paragraph: NumberingRef
-        val b0 = doc.blocks[0] as ParagraphBlock
-        assertNotNull("Should have numbering", b0.numbering)
-        assertEquals("numId", "3", b0.numbering!!.numId)
-        assertEquals("level", 0, b0.numbering!!.level)
-
-        // 3. Image paragraph: 5 inline items
-        val b1 = doc.blocks[1] as ParagraphBlock
-        val content = b1.content
-        assertEquals("Image paragraph should have 5 inline items", 5, content.size)
-        assertTrue(content[0] is TextContent)
-        assertEquals("比较", (content[0] as TextContent).text)
-        assertTrue(content[1] is ImageContent)
-        assertTrue(content[2] is TextContent)
-        assertEquals("与", (content[2] as TextContent).text)
-        assertTrue(content[3] is ImageContent)
-        assertTrue(content[4] is TextContent)
-        assertEquals("的区别", (content[4] as TextContent).text)
-
-        // Two different images → different mediaIds
-        val img1 = content[1] as ImageContent
-        val img2 = content[3] as ImageContent
-        assertNotEquals("Two different images should have different mediaIds", img1.mediaId, img2.mediaId)
-        assertEquals(64, img1.mediaId.length)
-        assertEquals(64, img2.mediaId.length)
-
-        // 4. Table: 2 rows × 2 cells
-        val b2 = doc.blocks[2] as TableBlock
-        assertEquals(2, b2.rows.size)
-        assertEquals(2, b2.rows[0].cells.size)
-        assertEquals(2, b2.rows[1].cells.size)
-
-        // 5. Tail paragraph not swallowed
-        val b3 = doc.blocks[3] as ParagraphBlock
-        val tailText = b3.content.filterIsInstance<TextContent>().joinToString("") { it.text }
-        assertEquals("尾段正常段落", tailText)
-
-        // 6. Numbering definitions
-        assertEquals(1, doc.numberingDefinitions.size)
-        val numDef = doc.numberingDefinitions["3"]
-        assertNotNull("Should have numbering def for numId=3", numDef)
-        assertEquals("7", numDef!!.abstractNumId)
-        val lvl = numDef.levels[0]
-        assertNotNull("Should have level 0", lvl)
-        assertEquals("decimal", lvl!!.numFmt)
-        assertEquals("%1.", lvl.lvlText)
-        assertEquals(1, lvl.start)
-
-        // 7. All sourceOrders >= 0 and globally unique
-        val allOrders = collectAllOrders(doc.blocks)
-        assertTrue("Should have at least 6 blocks", allOrders.size >= 6)
-        allOrders.forEach { assertTrue("sourceOrder >= 0: $it", it >= 0) }
-        assertEquals("All sourceOrders must be unique", allOrders.size, allOrders.toSet().size)
-
-        // 8. No [图片N] placeholders anywhere
-        for (block in doc.blocks) {
-            collectAllText(block).forEach { text ->
-                assertFalse("Should not contain [图片N]: $text", text.contains("[图片"))
-            }
-        }
+        return entries
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Helpers
-    // ═══════════════════════════════════════════════════════════
-
-    private fun collectAllOrders(blocks: List<DocumentBlock>): List<Int> {
-        val orders = mutableListOf<Int>()
-        for (b in blocks) {
-            orders += b.sourceOrder
-            if (b is TableBlock) {
-                for (row in b.rows) for (cell in row.cells) {
-                    orders += collectAllOrders(cell.blocks)
-                }
-            }
-        }
-        return orders
-    }
-
-    private fun collectAllText(block: DocumentBlock): List<String> {
-        val texts = mutableListOf<String>()
-        if (block is ParagraphBlock) {
-            for (c in block.content) {
-                if (c is TextContent) texts += c.text
-            }
-        }
-        if (block is TableBlock) {
-            for (row in block.rows) for (cell in row.cells) {
-                for (cb in cell.blocks) texts += collectAllText(cb)
-            }
-        }
-        return texts
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    // Minimal fixture builders
-    // ═══════════════════════════════════════════════════════════
 
     private fun wrapDocument(bodyXml: String): ByteArray = """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -246,29 +237,19 @@ class OoXmlDocumentReaderAndroidTest {
 
     private fun simpleTable(): String = """
         <w:tbl>
-          <w:tr>
-            <w:tc><w:p><w:r><w:t xml:space="preserve">A</w:t></w:r></w:p></w:tc>
-            <w:tc><w:p><w:r><w:t xml:space="preserve">TCP</w:t></w:r></w:p></w:tc>
-          </w:tr>
-          <w:tr>
-            <w:tc><w:p><w:r><w:t xml:space="preserve">B</w:t></w:r></w:p></w:tc>
-            <w:tc><w:p><w:r><w:t xml:space="preserve">UDP</w:t></w:r></w:p></w:tc>
-          </w:tr>
+          <w:tr><w:tc><w:p><w:r><w:t xml:space="preserve">A</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t xml:space="preserve">TCP</w:t></w:r></w:p></w:tc></w:tr>
+          <w:tr><w:tc><w:p><w:r><w:t xml:space="preserve">B</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t xml:space="preserve">UDP</w:t></w:r></w:p></w:tc></w:tr>
         </w:tbl>
     """.trimIndent()
 
-    private fun minimalPng(variant: Byte): ByteArray {
-        // Minimal 1x1 PNG with variant byte embedded in IDAT
-        val png = byteArrayOf(
-            0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // signature
-            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR len
-            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1
-            0x08, 0x02, 0x00, 0x00, 0x00, 0x90.toByte(), 0x77, 0x53, 0xDE.toByte(), // IHDR + CRC
-            0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, // IDAT len=12
-            0x08, 0xD7.toByte(), 0x63, variant, 0x60, 0x60, 0x60, 0x00, // IDAT data
-            0x00, 0x00, 0x04, 0x00, 0x01, 0x27.toByte(), 0x34, 0x09, // IDAT rest + CRC
-            0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE.toByte(), 0x42, 0x60, 0x82.toByte() // IEND
-        )
-        return png
-    }
+    private fun minimalPng(variant: Byte): ByteArray = byteArrayOf(
+        0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x02, 0x00, 0x00, 0x00, 0x90.toByte(), 0x77, 0x53, 0xDE.toByte(),
+        0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54,
+        0x08, 0xD7.toByte(), 0x63, variant, 0x60, 0x60, 0x60, 0x00,
+        0x00, 0x00, 0x04, 0x00, 0x01, 0x27.toByte(), 0x34, 0x09,
+        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE.toByte(), 0x42, 0x60, 0x82.toByte(),
+    )
 }

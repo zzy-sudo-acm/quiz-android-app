@@ -71,8 +71,19 @@ data class TextContent(
     val text: String,
 ) : InlineContent
 
+/**
+ * Image reference in source document.
+ *
+ * Always created for every &lt;a:blip&gt; regardless of media resolution success.
+ * - [mediaId] SHA-256 content identity, null if media bytes not found
+ * - [relationshipId] OOXML r:embed / r:link value, null if attribute missing
+ *
+ * ImageContent is a source reference node, never a resolved binary.
+ * [DocumentMedia] is the resolved binary/media entity.
+ */
 data class ImageContent(
-    val mediaId: String,
+    val mediaId: String?,
+    val relationshipId: String?,
 ) : InlineContent
 
 data object LineBreakContent : InlineContent

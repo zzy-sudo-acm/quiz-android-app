@@ -5,12 +5,6 @@ import org.xmlpull.v1.XmlPullParserFactory
 import java.io.StringReader
 import java.security.MessageDigest
 
-/**
- * 纯 Kotlin OOXML 结构化读取器。
- *
- * @param createParser 创建 XmlPullParser 的工厂。默认为 Android XmlPullParserFactory。
- *   JVM 测试可注入替代实现。
- */
 class OoXmlDocumentReader(
     private val createParser: (java.io.Reader) -> XmlPullParser = Companion.defaultFactory,
 ) {
@@ -23,6 +17,39 @@ class OoXmlDocumentReader(
     }
 
     // ═══════════════════════════════════════════════════════════
+    // Per-read parse context — eliminates instance mutable state
+    // ═══════════════════════════════════════════════════════════
+
+    private class ParseContext {
+        private var nextSourceOrder = 0
+        private var nextSourceId = 0
+
+        fun nextOrder(): Int = nextSourceOrder++
+        fun allocId(prefix: String): String = "$prefix${nextSourceId++}"
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // OOXML attribute helper — production reader resolves prefixed attributes itself
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * 按 local name（去掉命名空间前缀）查找 OOXML 属性值。
+     *
+     * OOXML 属性通常带前缀：w:val, w:numId, r:embed 等。
+     * Android XmlPullParser 在不同 parser impl 下对这些属性的
+     * getAttributeValue(null, "val") 行为不一致。
+     *
+     * 此方法显式按 local name 匹配，不依赖 parser 的 namespace 处理行为。
+     */
+    private fun attributeByLocalName(parser: XmlPullParser, localName: String): String? {
+        for (i in 0 until parser.attributeCount) {
+            val name = parser.getAttributeName(i)?.substringAfter(':') ?: continue
+            if (name == localName) return parser.getAttributeValue(i)
+        }
+        return null
+    }
+
+    // ═══════════════════════════════════════════════════════════
     // Public API
     // ═══════════════════════════════════════════════════════════
 
@@ -30,8 +57,7 @@ class OoXmlDocumentReader(
         entries: Map<String, ByteArray>,
         mediaDir: java.io.File? = null,
     ): StructuredDocument {
-        sourceOrderCounter = 0
-        nextGlobalId = 0
+        val ctx = ParseContext()
         val warnings = mutableListOf<DocumentWarning>()
 
         val documentXml = entries["word/document.xml"]?.toString(Charsets.UTF_8)
@@ -40,31 +66,16 @@ class OoXmlDocumentReader(
         val relsXml = entries["word/_rels/document.xml.rels"]?.toString(Charsets.UTF_8).orEmpty()
         val numberingXml = entries["word/numbering.xml"]?.toString(Charsets.UTF_8).orEmpty()
 
-        val imageRelationships = parseImageRelationships(relsXml)
+        val imageRelationships = parseImageRelationships(relsXml, warnings)
         val numberingDefinitions = parseNumberingDefinitions(numberingXml)
 
         val relIdToMediaId = mutableMapOf<String, String>()
         val media = buildMediaList(entries, imageRelationships, mediaDir, warnings, relIdToMediaId)
 
-        val blocks = parseDocumentBlocks(documentXml, imageRelationships.keys, relIdToMediaId)
+        val blocks = parseDocumentBlocks(documentXml, imageRelationships.keys, relIdToMediaId, warnings, ctx)
 
         return StructuredDocument(blocks, media, numberingDefinitions, warnings)
     }
-
-    // ═══════════════════════════════════════════════════════════
-    // Global counters (per read() call)
-    // ═══════════════════════════════════════════════════════════
-
-    /**
-     * 全局 sourceOrder 计数器。
-     * 所有 DocumentBlock（包括 TableCell 内嵌的）共用此计数器，
-     * 保证整个 StructuredDocument 内 sourceOrder 唯一、>= 0、按 DFS 遍历顺序递增。
-     */
-    private var sourceOrderCounter = 0
-
-    private var nextGlobalId = 0
-    private fun allocId(prefix: String): String = "$prefix${nextGlobalId++}"
-    private fun nextOrder(): Int = sourceOrderCounter++
 
     // ═══════════════════════════════════════════════════════════
     // Document body → blocks
@@ -74,10 +85,12 @@ class OoXmlDocumentReader(
         xml: String,
         imageRelIds: Set<String>,
         relIdToMediaId: Map<String, String>,
+        warnings: MutableList<DocumentWarning>,
+        ctx: ParseContext,
     ): List<DocumentBlock> {
         val parser = createParser(StringReader(xml))
         val blocks = mutableListOf<DocumentBlock>()
-        var bodyDepth = 0 // track whether we're inside <w:body>
+        var bodyDepth = 0
 
         while (true) {
             val event = parser.next()
@@ -88,9 +101,9 @@ class OoXmlDocumentReader(
                 event == XmlPullParser.START_TAG && name == "body" -> bodyDepth = 1
                 event == XmlPullParser.END_TAG && name == "body" -> bodyDepth = 0
                 event == XmlPullParser.START_TAG && bodyDepth > 0 && name == "p" ->
-                    blocks += parseParagraph(parser, imageRelIds, relIdToMediaId)
+                    blocks += parseParagraph(parser, relIdToMediaId, warnings, ctx)
                 event == XmlPullParser.START_TAG && bodyDepth > 0 && name == "tbl" ->
-                    blocks += parseTable(parser, imageRelIds, relIdToMediaId)
+                    blocks += parseTable(parser, relIdToMediaId, warnings, ctx)
             }
         }
         return blocks
@@ -102,11 +115,12 @@ class OoXmlDocumentReader(
 
     private fun parseParagraph(
         parser: XmlPullParser,
-        imageRelIds: Set<String>,
         relIdToMediaId: Map<String, String>,
+        warnings: MutableList<DocumentWarning>,
+        ctx: ParseContext,
     ): ParagraphBlock {
-        val order = nextOrder()
-        val id = allocId("p")
+        val order = ctx.nextOrder()
+        val id = ctx.allocId("p")
         val content = mutableListOf<InlineContent>()
         var numId: String? = null
         var level: Int? = null
@@ -124,20 +138,28 @@ class OoXmlDocumentReader(
                     when {
                         name == "pPr" -> { inPPr = true; pPrDepth++ }
                         inPPr && name == "numId" -> {
-                            numId = parser.getAttributeValue(null, "val")
-                            pPrDepth++ // balance with END_TAG
+                            numId = attributeByLocalName(parser, "val")
+                            pPrDepth++
                         }
                         inPPr && name == "ilvl" -> {
-                            level = parser.getAttributeValue(null, "val")?.toIntOrNull()
-                            pPrDepth++ // balance with END_TAG
+                            level = attributeByLocalName(parser, "val")?.toIntOrNull()
+                            pPrDepth++
                         }
                         inPPr -> pPrDepth++
                         name == "t" -> content += TextContent(readTextContent(parser))
                         name == "br" || name == "cr" -> content += LineBreakContent
                         name == "blip" -> {
-                            val relId = findRelId(parser)
+                            val relId = attributeByLocalName(parser, "embed")
+                                ?: attributeByLocalName(parser, "link")
                             val mediaId = if (relId != null) relIdToMediaId[relId] else null
-                            if (mediaId != null) content += ImageContent(mediaId)
+                            // Always create ImageContent — source reference node
+                            content += ImageContent(mediaId = mediaId, relationshipId = relId)
+                            if (relId != null && mediaId == null) {
+                                warnings += DocumentWarning(
+                                    DocumentWarningLevel.WARN,
+                                    "Image rId=$relId 的 media 字节未找到",
+                                )
+                            }
                         }
                     }
                 }
@@ -166,6 +188,7 @@ class OoXmlDocumentReader(
         return sb.toString()
     }
 
+    /** Merge adjacent TextContent. Does NOT merge across ImageContent or LineBreakContent. */
     private fun mergeAdjacentText(items: List<InlineContent>): List<InlineContent> {
         val merged = mutableListOf<InlineContent>()
         val buf = StringBuilder()
@@ -183,11 +206,12 @@ class OoXmlDocumentReader(
 
     private fun parseTable(
         parser: XmlPullParser,
-        imageRelIds: Set<String>,
         relIdToMediaId: Map<String, String>,
+        warnings: MutableList<DocumentWarning>,
+        ctx: ParseContext,
     ): TableBlock {
-        val order = nextOrder()
-        val id = allocId("t")
+        val order = ctx.nextOrder()
+        val id = ctx.allocId("t")
         val rows = mutableListOf<TableRow>()
         var depth = 1
         var event = parser.next()
@@ -196,7 +220,7 @@ class OoXmlDocumentReader(
             val name = parser.name?.substringAfter(':')
             when {
                 event == XmlPullParser.START_TAG && name == "tr" ->
-                    rows += parseTableRow(parser, imageRelIds, relIdToMediaId)
+                    rows += parseTableRow(parser, relIdToMediaId, warnings, ctx)
                 event == XmlPullParser.START_TAG && name == "tbl" -> depth++
                 event == XmlPullParser.END_TAG && name == "tbl" -> depth--
             }
@@ -207,8 +231,9 @@ class OoXmlDocumentReader(
 
     private fun parseTableRow(
         parser: XmlPullParser,
-        imageRelIds: Set<String>,
         relIdToMediaId: Map<String, String>,
+        warnings: MutableList<DocumentWarning>,
+        ctx: ParseContext,
     ): TableRow {
         val cells = mutableListOf<TableCell>()
         var depth = 1
@@ -218,7 +243,7 @@ class OoXmlDocumentReader(
             val name = parser.name?.substringAfter(':')
             when {
                 event == XmlPullParser.START_TAG && name == "tc" ->
-                    cells += parseTableCell(parser, imageRelIds, relIdToMediaId)
+                    cells += parseTableCell(parser, relIdToMediaId, warnings, ctx)
                 event == XmlPullParser.START_TAG && name == "tr" -> depth++
                 event == XmlPullParser.END_TAG && name == "tr" -> depth--
             }
@@ -229,8 +254,9 @@ class OoXmlDocumentReader(
 
     private fun parseTableCell(
         parser: XmlPullParser,
-        imageRelIds: Set<String>,
         relIdToMediaId: Map<String, String>,
+        warnings: MutableList<DocumentWarning>,
+        ctx: ParseContext,
     ): TableCell {
         val blocks = mutableListOf<DocumentBlock>()
         var depth = 1
@@ -240,9 +266,9 @@ class OoXmlDocumentReader(
             val name = parser.name?.substringAfter(':')
             when {
                 event == XmlPullParser.START_TAG && name == "p" ->
-                    blocks += parseParagraph(parser, imageRelIds, relIdToMediaId)
+                    blocks += parseParagraph(parser, relIdToMediaId, warnings, ctx)
                 event == XmlPullParser.START_TAG && name == "tbl" ->
-                    blocks += parseTable(parser, imageRelIds, relIdToMediaId)
+                    blocks += parseTable(parser, relIdToMediaId, warnings, ctx)
                 event == XmlPullParser.START_TAG && name == "tc" -> depth++
                 event == XmlPullParser.END_TAG && name == "tc" -> depth--
             }
@@ -255,7 +281,10 @@ class OoXmlDocumentReader(
     // Image relationships
     // ═══════════════════════════════════════════════════════════
 
-    private fun parseImageRelationships(xml: String): Map<String, String> {
+    private fun parseImageRelationships(
+        xml: String,
+        warnings: MutableList<DocumentWarning>,
+    ): Map<String, String> {
         if (xml.isBlank()) return emptyMap()
         val parser = createParser(StringReader(xml))
         val images = linkedMapOf<String, String>()
@@ -263,11 +292,17 @@ class OoXmlDocumentReader(
 
         while (event != XmlPullParser.END_DOCUMENT) {
             if (event == XmlPullParser.START_TAG && parser.name?.substringAfter(':') == "Relationship") {
-                val id = parser.getAttributeValue(null, "Id")
-                val target = parser.getAttributeValue(null, "Target")
-                val type = parser.getAttributeValue(null, "Type").orEmpty()
+                val id = attributeByLocalName(parser, "Id")
+                val target = attributeByLocalName(parser, "Target")
+                val type = attributeByLocalName(parser, "Type").orEmpty()
                 if (!id.isNullOrBlank() && !target.isNullOrBlank() && type.contains("/image"))
                     images[id] = target
+                else if (!id.isNullOrBlank() && type.contains("/image")) {
+                    warnings += DocumentWarning(
+                        DocumentWarningLevel.WARN,
+                        "Image relationship $id 缺少 Target 或 Id",
+                    )
+                }
             }
             event = parser.next()
         }
@@ -295,18 +330,21 @@ class OoXmlDocumentReader(
             when (event) {
                 XmlPullParser.START_TAG -> {
                     when (name) {
-                        "abstractNum" -> currentAbsId = parser.getAttributeValue(null, "abstractNumId")
-                        "lvl" -> { level = parser.getAttributeValue(null, "ilvl")?.toIntOrNull() ?: 0; numFmt = null; lvlText = null; startVal = null }
-                        "numFmt" -> numFmt = parser.getAttributeValue(null, "val")
-                        "lvlText" -> lvlText = parser.getAttributeValue(null, "val")
-                        "start" -> startVal = parser.getAttributeValue(null, "val")?.toIntOrNull()
+                        "abstractNum" -> currentAbsId = attributeByLocalName(parser, "abstractNumId")
+                        "lvl" -> {
+                            level = attributeByLocalName(parser, "ilvl")?.toIntOrNull() ?: 0
+                            numFmt = null; lvlText = null; startVal = null
+                        }
+                        "numFmt" -> numFmt = attributeByLocalName(parser, "val")
+                        "lvlText" -> lvlText = attributeByLocalName(parser, "val")
+                        "start" -> startVal = attributeByLocalName(parser, "val")?.toIntOrNull()
                         "num" -> {
-                            val nid = parser.getAttributeValue(null, "numId")
+                            val nid = attributeByLocalName(parser, "numId")
                             if (nid != null) {
                                 var inner = parser.next()
                                 while (inner != XmlPullParser.END_DOCUMENT) {
                                     if (inner == XmlPullParser.START_TAG && parser.name?.substringAfter(':') == "abstractNumId") {
-                                        val aid = parser.getAttributeValue(null, "val")
+                                        val aid = attributeByLocalName(parser, "val")
                                         if (aid != null) numToAbstract[nid] = aid
                                         break
                                     }
@@ -395,14 +433,6 @@ class OoXmlDocumentReader(
     // ═══════════════════════════════════════════════════════════
     // Utilities
     // ═══════════════════════════════════════════════════════════
-
-    private fun findRelId(parser: XmlPullParser): String? {
-        for (i in 0 until parser.attributeCount) {
-            val an = parser.getAttributeName(i)?.substringAfter(':')
-            if (an == "embed" || an == "link") return parser.getAttributeValue(i)
-        }
-        return null
-    }
 
     private fun sha256(bytes: ByteArray): String {
         val md = MessageDigest.getInstance("SHA-256")

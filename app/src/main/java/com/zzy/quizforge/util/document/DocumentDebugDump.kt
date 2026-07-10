@@ -130,7 +130,8 @@ object DocumentDebugDump {
             }
             is ImageContent -> JsonObject().apply {
                 addProperty("type", "image")
-                addProperty("mediaId", inline.mediaId)
+                inline.mediaId?.let { addProperty("mediaId", it.take(12) + "...") }
+                inline.relationshipId?.let { addProperty("relationshipId", it) }
             }
             is LineBreakContent -> JsonObject().apply {
                 addProperty("type", "lineBreak")
