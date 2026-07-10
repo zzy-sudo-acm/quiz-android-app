@@ -83,7 +83,7 @@ object QuestionAssembler {
                                 for (inline in cb.content) {
                                     if (inline is ImageContent) {
                                         imageRefs += ImageRef(inline.mediaId, inline.relationshipId, cb.sourceId,
-                                            belongsTo = "cell")
+                                            owner = ImageOwner.TableCell)
                                     }
                                 }
                             }
@@ -94,7 +94,7 @@ object QuestionAssembler {
         }
 
         // Determine representability
-        val stemImageCount = imageRefs.filter { it.belongsTo != "cell" }.count { it.belongsTo == null || it.belongsTo == "stem" }
+        val stemImageCount = imageRefs.filter { it.owner !is ImageOwner.TableCell }.count { it.owner is ImageOwner.Stem || it.owner is ImageOwner.Unbound }
         val representability = when {
             tableRefs.isNotEmpty() -> Representability.LOSSY
             stemImageCount > 1 -> Representability.LOSSY

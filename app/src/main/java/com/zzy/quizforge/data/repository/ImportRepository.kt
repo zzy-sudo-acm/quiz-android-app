@@ -11,6 +11,12 @@ import com.zzy.quizforge.util.ImportedImage
 import com.zzy.quizforge.util.JsonValidator
 import com.zzy.quizforge.util.OriginalQuestionParser
 import com.zzy.quizforge.util.SlotAssembler
+import com.zzy.quizforge.util.document.DocxArchiveLoader
+import com.zzy.quizforge.util.document.DeepSeekStructureLabelClient
+import com.zzy.quizforge.util.document.ImportStrategy
+import com.zzy.quizforge.util.document.LossyPolicy
+import com.zzy.quizforge.util.document.NewImportPipeline
+import com.zzy.quizforge.util.document.ShadowComparator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -24,8 +30,65 @@ class ImportRepository(
     private val settingsStore: SettingsStore,
 ) {
     private val docxParser = DocxParser(context)
+    private val appContext = context.applicationContext
 
     fun extractDocx(uri: Uri): DocumentContent = docxParser.extractDocument(uri)
+
+    /**
+     * Strategy-based import via Uri (supports SHADOW, DOCUMENT_IR).
+     * LEGACY strategy delegates to [generateQuizBank].
+     */
+    fun importFromUri(
+        name: String,
+        uri: Uri,
+        strategy: ImportStrategy = ImportStrategy.LEGACY,
+    ): Flow<ImportProgress> = flow {
+        when (strategy) {
+            ImportStrategy.LEGACY -> {
+                val dc = extractDocx(uri)
+                generateQuizBank(name, dc).collect { emit(it) }
+            }
+            ImportStrategy.DOCUMENT_IR -> {
+                val entries = DocxArchiveLoader.load(appContext.contentResolver, uri)
+                val client = DeepSeekStructureLabelClient(api)
+                val pipeline = NewImportPipeline(client, LossyPolicy.STRICT)
+                val apiKey = settingsStore.getApiKey()
+                val result = pipeline.execute(entries, apiKey)
+
+                if (result.questions.isEmpty()) {
+                    emit(ImportProgress.Error("Document IR pipeline 未生成任何有效题目"))
+                    return@flow
+                }
+
+                val bankId = quizRepository.createBank(name, result.questions)
+                val msg = "新流水线: ${result.questions.size}题 (确定${result.deterministicCompleteCount}+AI${result.aiAcceptedCount})"
+                emit(ImportProgress.Done(bankId, result.questions.size, message = msg))
+            }
+            ImportStrategy.SHADOW -> {
+                // Run legacy pipeline as user-visible result
+                val dc = extractDocx(uri)
+                var legacyResult: ImportProgress.Done? = null
+                generateQuizBank(name, dc).collect {
+                    emit(it)
+                    if (it is ImportProgress.Done) legacyResult = it
+                }
+                // Run new pipeline in shadow for comparison
+                runCatching {
+                    val entries = DocxArchiveLoader.load(appContext.contentResolver, uri)
+                    val client = DeepSeekStructureLabelClient(api)
+                    val pipeline = NewImportPipeline(client, LossyPolicy.STRICT)
+                    val apiKey = settingsStore.getApiKey()
+                    val newResult = pipeline.execute(entries, apiKey)
+                    // Find legacy questions for comparison
+                    val legacyQuestions = quizRepository.getQuestions(legacyResult!!.bankId, com.zzy.quizforge.domain.model.QuizMode.SEQUENTIAL)
+                    val comparison = ShadowComparator.compare(legacyQuestions, newResult)
+                    emit(ImportProgress.Log("Shadow: legacy=${comparison.legacyCount} new=${comparison.newCount} orderMatch=${comparison.orderMatch}\n", 0))
+                }.onFailure { e ->
+                    emit(ImportProgress.Log("Shadow comparison failed: ${e.message}\n", 0))
+                }
+            }
+        }
+    }.flowOn(Dispatchers.IO)
 
     /**
      * 导入流程：

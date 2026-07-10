@@ -27,12 +27,7 @@ object StructureLabeler {
     ): List<StructureAnnotation> {
         return when (status) {
             LabelingStatus.COMPLETE -> deterministic.annotations
-            LabelingStatus.AMBIGUOUS -> {
-                if (aiAnnotations != null && aiAnnotations.isNotEmpty()) {
-                    val locked = deterministic.annotations.filter { it.label == AnnotationLabel.ANSWER || it.label == AnnotationLabel.EXPLANATION }
-                    locked + aiAnnotations
-                } else deterministic.annotations
-            }
+            LabelingStatus.AMBIGUOUS -> aiAnnotations ?: deterministic.annotations
             LabelingStatus.REJECTED -> emptyList()
         }
     }

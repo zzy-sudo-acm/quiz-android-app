@@ -52,11 +52,17 @@ data class OptionSlice(
     val imageRefs: List<ImageRef> = emptyList(),
 )
 
+sealed interface ImageOwner { data object Stem : ImageOwner; data class Option(val key: String) : ImageOwner; data object Unbound : ImageOwner; data object TableCell : ImageOwner }
+
 data class ImageRef(
     val mediaId: String?,
     val relationshipId: String?,
     val sourceBlockId: String,
-    val belongsTo: String? = null, // "stem" or optionKey
+    val sourceOrder: Int = -1,
+    val inlineIndex: Int = -1,
+    val charOffset: Int = -1,
+    val owner: ImageOwner = ImageOwner.Unbound,
+    val resolvedLocalPath: String? = null,
 )
 
 data class TableRef(

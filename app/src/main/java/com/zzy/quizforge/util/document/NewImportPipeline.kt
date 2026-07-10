@@ -93,7 +93,7 @@ class NewImportPipeline(
 
                         val validationResult = StructureLabelValidator.validate(
                             parseResult.annotations, seg.sourceIds.toSet(), labeling.sourceProjections,
-                            labeling.annotations.filter { it.label == AnnotationLabel.ANSWER || it.label == AnnotationLabel.EXPLANATION }
+                            emptyList() // AMBIGUOUS = full AI replacement, no locked annotations
                         )
 
                         if (validationResult.rejections.isNotEmpty()) {
@@ -146,25 +146,25 @@ class NewImportPipeline(
         }
 
         onProgress(NewPipelineProgress.Validating)
-        onProgress(NewPipelineProgress.Done(NewPipelineResult(
-            questions, segResult.segments.size, detComplete, aiAttempted, aiAccepted,
-            rejected, lossy, segResult.unassignedSourceIds.size,
-            segResult.unassignedSourceIds.map { "Unassigned: $it" }, diagnostics
-        )))
-
-        return NewPipelineResult(questions, segResult.segments.size, detComplete, aiAttempted, aiAccepted,
+        val result = NewPipelineResult(questions, segResult.segments.size, detComplete, aiAttempted, aiAccepted,
             rejected, lossy, segResult.unassignedSourceIds.size,
             segResult.unassignedSourceIds.map { "Unassigned: $it" }, diagnostics)
+        onProgress(NewPipelineProgress.Done(result))
+        return result
     }
 
     private fun buildSnapshot(seg: QuestionSegment, doc: StructuredDocument): SegmentSnapshot {
         val blockMap = doc.blocks.associateBy { it.sourceId }
+        var tableCount = 0; var imageCount = 0
         val sourceBlocks = seg.sourceIds.mapNotNull { sid ->
             val b = blockMap[sid] ?: return@mapNotNull null
+            if (b is TableBlock) tableCount++
             val proj = SourceProjection.from(b)
-            BlockSnapshot(sid, b.sourceOrder, if (b is ParagraphBlock) "paragraph" else "table", proj.text,
-                if (b is ParagraphBlock) b.content.count { it is ImageContent } else 0, null)
+            val summary = if (b is TableBlock) "table ${b.rows.size}rows×${b.rows.firstOrNull()?.cells?.size ?: 0}cells" else null
+            val imgs = if (b is ParagraphBlock) b.content.count { it is ImageContent } else 0
+            imageCount += imgs
+            BlockSnapshot(sid, b.sourceOrder, if (b is ParagraphBlock) "paragraph" else "table", proj.text, imgs, summary)
         }
-        return SegmentSnapshot(seg.segmentId, seg.originalQuestionNumber, sourceBlocks, 0, sourceBlocks.sumOf { it.imageRefCount })
+        return SegmentSnapshot(seg.segmentId, seg.originalQuestionNumber, sourceBlocks, tableCount, imageCount)
     }
 }

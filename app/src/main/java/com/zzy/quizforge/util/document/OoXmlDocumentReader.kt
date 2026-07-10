@@ -66,13 +66,13 @@ class OoXmlDocumentReader(
         val relsXml = entries["word/_rels/document.xml.rels"]?.toString(Charsets.UTF_8).orEmpty()
         val numberingXml = entries["word/numbering.xml"]?.toString(Charsets.UTF_8).orEmpty()
 
-        val imageRelationships = parseImageRelationships(relsXml, warnings)
+        val (declaredImageRelIds, resolvableImageRels) = parseImageRelationships(relsXml, warnings)
         val numberingDefinitions = parseNumberingDefinitions(numberingXml)
 
         val relIdToMediaId = mutableMapOf<String, String>()
-        val media = buildMediaList(entries, imageRelationships, mediaDir, warnings, relIdToMediaId)
+        val media = buildMediaList(entries, resolvableImageRels, mediaDir, warnings, relIdToMediaId)
 
-        val blocks = parseDocumentBlocks(documentXml, imageRelationships.keys, relIdToMediaId, warnings, ctx)
+        val blocks = parseDocumentBlocks(documentXml, declaredImageRelIds, relIdToMediaId, warnings, ctx)
 
         return StructuredDocument(blocks, media, numberingDefinitions, warnings)
     }
@@ -295,10 +295,11 @@ class OoXmlDocumentReader(
     private fun parseImageRelationships(
         xml: String,
         warnings: MutableList<DocumentWarning>,
-    ): Map<String, String> {
-        if (xml.isBlank()) return emptyMap()
+    ): Pair<Set<String>, Map<String, String>> {
+        if (xml.isBlank()) return Pair(emptySet(), emptyMap())
         val parser = createParser(StringReader(xml))
-        val images = linkedMapOf<String, String>()
+        val declared = mutableSetOf<String>()
+        val resolvable = linkedMapOf<String, String>()
         var event = parser.eventType
 
         while (event != XmlPullParser.END_DOCUMENT) {
@@ -306,18 +307,15 @@ class OoXmlDocumentReader(
                 val id = attributeByLocalName(parser, "Id")
                 val target = attributeByLocalName(parser, "Target")
                 val type = attributeByLocalName(parser, "Type").orEmpty()
-                if (!id.isNullOrBlank() && !target.isNullOrBlank() && type.contains("/image"))
-                    images[id] = target
-                else if (!id.isNullOrBlank() && type.contains("/image")) {
-                    warnings += DocumentWarning(
-                        DocumentWarningLevel.WARN,
-                        "Image relationship $id 缺少 Target 或 Id",
-                    )
+                if (type.contains("/image") && !id.isNullOrBlank()) {
+                    declared += id
+                    if (!target.isNullOrBlank()) resolvable[id] = target
+                    else warnings += DocumentWarning(DocumentWarningLevel.WARN, "Image relationship $id 缺少 Target")
                 }
             }
             event = parser.next()
         }
-        return images
+        return Pair(declared, resolvable)
     }
 
     // ═══════════════════════════════════════════════════════════

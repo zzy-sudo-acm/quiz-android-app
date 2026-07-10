@@ -70,8 +70,11 @@ object QuizQuestionAdapter {
             options
         }
 
-        // Try to assign image from stem
-        val stemImage = draft.imageRefs.firstOrNull { it.belongsTo != "cell" && it.mediaId != null }
+        // Resolve stem image from resolved path, never raw mediaId
+        val stemImage = draft.imageRefs.firstOrNull { it.owner == ImageOwner.Stem && it.resolvedLocalPath != null }
+        if (stemImage == null && draft.imageRefs.any { it.owner == ImageOwner.Stem && it.mediaId != null }) {
+            warnings += "Stem image unresolved: mediaId without localPath"
+        }
 
         val question = QuizQuestion(
             originalId = draft.originalQuestionNumber?.takeIf { it > 0 },
@@ -82,7 +85,7 @@ object QuizQuestionAdapter {
             explanation = draft.explanationText.trim().takeIf { it.isNotBlank() },
             knowledge = null,
             image = null,
-            imageUri = stemImage?.mediaId,
+            imageUri = stemImage?.resolvedLocalPath,
         )
 
         return ConversionResult(question, status, warnings)

@@ -2,65 +2,41 @@ package com.zzy.quizforge.util.document
 
 import com.google.gson.JsonParser
 
-/**
- * Parses and validates raw AI Structure Label JSON response.
- * Checks actual JSON keys BEFORE Gson deserialization.
- */
 object AiResponseParser {
+    private val TOP_ALLOW = setOf("annotations")
+    private val ANN_ALLOW = setOf("sourceId", "label", "startOffset", "endOffset", "optionKey")
 
-    private val TOP_LEVEL_ALLOWLIST = setOf("annotations")
-    private val ANNOTATION_ALLOWLIST = setOf("sourceId", "label", "startOffset", "endOffset", "optionKey")
-    private val VALID_LABELS = setOf("STEM", "OPTION", "ANSWER", "EXPLANATION", "TYPE_HINT", "OTHER")
-
-    data class ParseResult(
-        val annotations: List<RawAiAnnotation>,
-        val errors: List<String>,
-    )
+    data class ParseResult(val annotations: List<RawAiAnnotation>, val errors: List<String>)
 
     fun parse(rawJson: String): ParseResult {
         val errors = mutableListOf<String>()
-
-        val root = runCatching { JsonParser.parseString(rawJson).asJsonObject }
+        val root = runCatching { JsonParser.parseString(rawJson) }
             .getOrElse { return ParseResult(emptyList(), listOf("Invalid JSON: ${it.message}")) }
 
-        // Check top-level keys
-        for (key in root.keySet()) {
-            if (key !in TOP_LEVEL_ALLOWLIST) {
-                errors += "Forbidden top-level key: '$key'"
-            }
+        if (!root.isJsonObject) return ParseResult(emptyList(), listOf("Root must be JSON object"))
+        val rootObj = root.asJsonObject
+        for (k in rootObj.keySet()) if (k !in TOP_ALLOW) errors += "Forbidden top-level key: $k"
+
+        val arr = rootObj.get("annotations")
+        if (arr == null || !arr.isJsonArray) return ParseResult(emptyList(), errors + "Missing/not-array 'annotations'")
+
+        val raw = mutableListOf<RawAiAnnotation>()
+        for ((i, e) in arr.asJsonArray.withIndex()) {
+            if (!e.isJsonObject) { errors += "annotations[$i] not object"; continue }
+            val o = e.asJsonObject
+            for (k in o.keySet()) if (k !in ANN_ALLOW) errors += "annotations[$i]: forbidden key '$k'"
+
+            val sid = o.get("sourceId"); val lbl = o.get("label")
+            val so = o.get("startOffset"); val eo = o.get("endOffset"); val ok = o.get("optionKey")
+
+            if (sid == null || !sid.isJsonPrimitive || !sid.asJsonPrimitive.isString) { errors += "annotations[$i]: sourceId not string"; continue }
+            if (lbl == null || !lbl.isJsonPrimitive || !lbl.asJsonPrimitive.isString) { errors += "annotations[$i]: label not string"; continue }
+            if (so == null || !so.isJsonPrimitive || !so.asJsonPrimitive.isNumber) { errors += "annotations[$i]: startOffset not int"; continue }
+            if (eo == null || !eo.isJsonPrimitive || !eo.asJsonPrimitive.isNumber) { errors += "annotations[$i]: endOffset not int"; continue }
+            if (ok != null && (!ok.isJsonPrimitive || !ok.asJsonPrimitive.isString)) { errors += "annotations[$i]: optionKey not string|null"; continue }
+
+            raw += RawAiAnnotation(sid.asString, lbl.asString, so.asInt, eo.asInt, ok?.asString)
         }
-
-        val annotationsArr = root.getAsJsonArray("annotations")
-            ?: return ParseResult(emptyList(), errors + "Missing or null 'annotations' array")
-
-        if (!root.has("annotations")) {
-            return ParseResult(emptyList(), errors + "Missing required 'annotations' field")
-        }
-
-        val rawAnnotations = mutableListOf<RawAiAnnotation>()
-        for ((i, elem) in annotationsArr.withIndex()) {
-            if (!elem.isJsonObject) { errors += "annotations[$i] not an object"; continue }
-            val obj = elem.asJsonObject
-
-            // Check annotation-level keys
-            for (key in obj.keySet()) {
-                if (key !in ANNOTATION_ALLOWLIST) {
-                    errors += "annotations[$i]: forbidden key '$key'"
-                }
-            }
-
-            val sourceId = obj.get("sourceId")?.asString ?: ""
-            val label = obj.get("label")?.asString ?: ""
-            val startOffset = obj.get("startOffset")?.asInt ?: -1
-            val endOffset = obj.get("endOffset")?.asInt ?: -1
-            val optionKey = obj.get("optionKey")?.asString
-
-            if (label !in VALID_LABELS) errors += "annotations[$i]: invalid label '$label'"
-            if (sourceId.isBlank()) errors += "annotations[$i]: missing sourceId"
-
-            rawAnnotations += RawAiAnnotation(sourceId, label, startOffset, endOffset, optionKey)
-        }
-
-        return ParseResult(rawAnnotations, errors)
+        return ParseResult(raw, errors)
     }
 }

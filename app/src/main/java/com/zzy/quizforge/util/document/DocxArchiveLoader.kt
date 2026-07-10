@@ -20,8 +20,16 @@ object DocxArchiveLoader {
                     val entry = zip.nextEntry ?: break
                     if (entry.isDirectory) continue
 
-                    val name = entry.name.replace('\\', '/').trimStart('/')
-                    if (name.contains("..")) throw SecurityException("Path traversal: $name")
+                    val rawName = entry.name
+                    // Reject absolute paths and backslash traversal before normalization
+                    if (rawName.startsWith("/") || rawName.startsWith("\\") ||
+                        rawName.matches(Regex("""^[A-Za-z]:[/\\].*""")))
+                        throw SecurityException("Absolute path: $rawName")
+
+                    val name = rawName.replace('\\', '/').trimStart('/')
+                    // Check path segments for traversal
+                    if (name.split('/').any { it == ".." })
+                        throw SecurityException("Path traversal: $name")
                     if (name.isBlank()) continue
 
                     if (entries.containsKey(name)) {

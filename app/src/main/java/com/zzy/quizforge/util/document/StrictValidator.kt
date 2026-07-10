@@ -74,10 +74,13 @@ object StrictValidator {
             }
         }
 
+        // Canonical TRUE_FALSE: A must be 对/正确/√ and B must be 错/错误/×
+        val optionA = draft.optionSlices.find { it.key == "A" }
+        val optionB = draft.optionSlices.find { it.key == "B" }
         val isTrueFalse = draft.optionSlices.size == 2 &&
-            draft.optionSlices.all { it.key in setOf("A", "B") } &&
-            draft.optionSlices.any { it.text in setOf("对", "正确", "√") } &&
-            draft.optionSlices.any { it.text in setOf("错", "错误", "×") }
+            optionA != null && optionB != null &&
+            optionA.text in setOf("对", "正确", "√") &&
+            optionB.text in setOf("错", "错误", "×")
 
         val finalType = if (isTrueFalse) QuestionType.TRUE_FALSE else type
 

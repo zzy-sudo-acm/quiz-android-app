@@ -225,4 +225,62 @@ class DeepSeekApi(
                 ?.asString
                 .orEmpty()
         }.getOrDefault("")
+
+    /**
+     * AI Structure Label — 单 QuestionSegment 的语义标注。
+     *
+     * 与 repairBlock() 完全独立：
+     * - 不返回完整题目 JSON
+     * - 只返回 annotations（sourceId + label + offset）
+     * - 禁止返回 question/options/answer/text/content
+     */
+    suspend fun labelStructure(apiKey: String, snapshotJson: String): String =
+        withContext(Dispatchers.IO) {
+            val prompt = buildLabelPrompt(snapshotJson)
+            val body = gson.toJson(
+                mapOf(
+                    "model" to DEFAULT_MODEL,
+                    "stream" to false,
+                    "temperature" to 0.0,
+                    "max_tokens" to 4096,
+                    "messages" to listOf(
+                        mapOf("role" to "user", "content" to prompt),
+                    ),
+                ),
+            ).toRequestBody("application/json; charset=utf-8".toMediaType())
+
+            val request = Request.Builder()
+                .url("https://api.deepseek.com/chat/completions")
+                .header("Authorization", "Bearer $apiKey")
+                .post(body)
+                .build()
+
+            executeWithRetry(request)
+        }
+
+    private fun buildLabelPrompt(snapshotJson: String): String = """
+你是一个文档结构标注助手。下面是一个题目片段的结构化快照。
+
+任务：为每个 source block 标注语义类型和精确字符范围。
+
+严格要求：
+1. 只返回 annotations JSON，不返回 question/options/answer/text/content 字段
+2. 不要改写任何 source text
+3. startOffset/endOffset 基于 snapshot 中提供的 text 字段
+4. 每个 sourceId 可以有多个 annotation（如 A.xxx B.xxx 在同一段中）
+5. OPTION 必须携带 optionKey（A-H 单字母）
+6. STEM 的 range 从题号之后开始（不包含 "1. " 等题号前缀）
+
+返回格式（严格 JSON，无 markdown 代码块）：
+{
+  "annotations": [
+    {"sourceId": "p3", "label": "STEM", "startOffset": 3, "endOffset": 10},
+    {"sourceId": "p4", "label": "OPTION", "startOffset": 3, "endOffset": 12, "optionKey": "A"},
+    {"sourceId": "p5", "label": "ANSWER", "startOffset": 0, "endOffset": 1}
+  ]
+}
+
+快照：
+$snapshotJson
+""".trimIndent()
 }
