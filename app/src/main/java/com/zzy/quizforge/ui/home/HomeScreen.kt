@@ -11,11 +11,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -29,6 +34,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -38,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zzy.quizforge.R
 import com.zzy.quizforge.domain.model.QuizMode
 import com.zzy.quizforge.ui.components.SurfaceCard
+import com.zzy.quizforge.ui.theme.ErrorRed
 import com.zzy.quizforge.ui.theme.TerminalBackground
 import com.zzy.quizforge.ui.theme.TextMuted
 import java.text.SimpleDateFormat
@@ -106,7 +115,11 @@ fun HomeScreen(
             }
 
             items(state.banks, key = { it.id }) { bank ->
-                BankCard(bank = bank, onStartQuiz = onStartQuiz)
+                BankCard(
+                    bank = bank,
+                    onStartQuiz = onStartQuiz,
+                    onDeleteBank = { viewModel.deleteBank(bank.id) },
+                )
             }
 
             item {
@@ -120,7 +133,11 @@ fun HomeScreen(
 private fun BankCard(
     bank: QuizBankSummaryUi,
     onStartQuiz: (Long, QuizMode) -> Unit,
+    onDeleteBank: () -> Unit,
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
     SurfaceCard {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -143,6 +160,24 @@ private fun BankCard(
                     color = TextMuted,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            IconButton(onClick = { menuExpanded = true }) {
+                Icon(Icons.Default.MoreVert, contentDescription = "更多", tint = TextMuted)
+            }
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("删除题库", color = ErrorRed) },
+                    onClick = {
+                        menuExpanded = false
+                        showDeleteDialog = true
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.Delete, contentDescription = null, tint = ErrorRed)
+                    },
                 )
             }
         }
@@ -175,6 +210,29 @@ private fun BankCard(
                 Text("错题")
             }
         }
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("确认删除") },
+            text = { Text("删除「${bank.name}」？\n\n将同时删除该题库、答题记录和学习进度。\n此操作无法撤销。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        onDeleteBank()
+                    },
+                ) {
+                    Text("删除", color = ErrorRed)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("取消")
+                }
+            },
+        )
     }
 }
 

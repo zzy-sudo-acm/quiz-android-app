@@ -4,10 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zzy.quizforge.data.local.QuizBankSummaryRow
 import com.zzy.quizforge.data.repository.QuizRepository
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 data class QuizBankSummaryUi(
     val id: Long,
@@ -24,9 +28,10 @@ data class QuizBankSummaryUi(
 
 data class HomeUiState(
     val banks: List<QuizBankSummaryUi> = emptyList(),
+    val deleteError: String? = null,
 )
 
-class HomeViewModel(repository: QuizRepository) : ViewModel() {
+class HomeViewModel(private val repository: QuizRepository) : ViewModel() {
     val uiState: StateFlow<HomeUiState> = repository.observeBankSummaries()
         .map { rows -> HomeUiState(rows.map { it.toUi() }) }
         .stateIn(
@@ -34,6 +39,23 @@ class HomeViewModel(repository: QuizRepository) : ViewModel() {
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = HomeUiState(),
         )
+
+    private val _deleteError = MutableStateFlow<String?>(null)
+    val deleteError: StateFlow<String?> = _deleteError.asStateFlow()
+
+    fun clearDeleteError() {
+        _deleteError.value = null
+    }
+
+    fun deleteBank(bankId: Long) {
+        viewModelScope.launch {
+            runCatching {
+                repository.deleteBank(bankId)
+            }.onFailure { e ->
+                _deleteError.value = e.message ?: "删除失败"
+            }
+        }
+    }
 
     private fun QuizBankSummaryRow.toUi(): QuizBankSummaryUi =
         QuizBankSummaryUi(
