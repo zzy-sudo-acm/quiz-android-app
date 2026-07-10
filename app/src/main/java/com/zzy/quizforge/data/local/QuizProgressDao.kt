@@ -13,4 +13,7 @@ interface QuizProgressDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun save(progress: QuizProgressEntity)
+
+    @Query("DELETE FROM quiz_progress WHERE bankId = :bankId")
+    suspend fun deleteByBankId(bankId: Long)
 }

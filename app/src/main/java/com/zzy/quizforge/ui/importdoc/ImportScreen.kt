@@ -181,7 +181,7 @@ fun ImportScreen(
                             )
                         }
                         Text(
-                            text = "构建：${BuildConfig.VERSION_NAME} / SHADOW",
+                            text = "构建：${BuildConfig.VERSION_NAME} / ${com.zzy.quizforge.util.document.ImportRuntimeConfig.displayName}",
                             color = TextMuted,
                             style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(top = 4.dp),

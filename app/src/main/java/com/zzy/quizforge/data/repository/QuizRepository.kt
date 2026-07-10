@@ -28,8 +28,8 @@ class QuizRepository(
 ) {
     private val gson = Gson()
 
-    fun observeBankSummaries(): Flow<List<QuizBankSummaryRow>> =
-        database.quizBankDao().observeSummaries()
+    fun observeBankSummaries(sequentialMode: String = QuizMode.SEQUENTIAL.routeValue): Flow<List<QuizBankSummaryRow>> =
+        database.quizBankDao().observeSummaries(sequentialMode)
 
     suspend fun seedDefaultBankIfNeeded() {
         if (database.quizBankDao().countBanks() > 0) return
@@ -75,7 +75,10 @@ class QuizRepository(
     }
 
     suspend fun deleteBank(bankId: Long) {
-        database.quizBankDao().delete(bankId)
+        database.withTransaction {
+            database.quizProgressDao().deleteByBankId(bankId)
+            database.quizBankDao().delete(bankId) // cascades questions + answer_records
+        }
     }
 
     suspend fun getBankName(bankId: Long): String =
@@ -137,11 +140,8 @@ class QuizRepository(
 
     suspend fun clearAllData() = withContext(Dispatchers.IO) {
         database.clearAllTables()
-        // clearAllTables 清除了所有题库数据，因此所有 docx-images 中的图片都不再被引用，可安全删除
-        val imageDir = File(filesDir, "docx-images")
-        if (imageDir.isDirectory) {
-            imageDir.listFiles()?.forEach { it.delete() }
-        }
+        File(filesDir, "docx-images").deleteRecursively()
+        File(filesDir, "docx-images-ir").deleteRecursively()
         seedDefaultBankIfNeeded()
     }
 }

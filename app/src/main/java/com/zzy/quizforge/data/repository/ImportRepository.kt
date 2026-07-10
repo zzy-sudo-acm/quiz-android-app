@@ -66,28 +66,43 @@ class ImportRepository(
                 emit(ImportProgress.Done(bankId, result.questions.size, message = msg))
             }
             ImportStrategy.SHADOW -> {
-                // Run legacy pipeline as user-visible result
+                // Run legacy pipeline as user-visible result — hold Done until shadow finishes
                 val dc = extractDocx(uri)
-                var legacyResult: ImportProgress.Done? = null
-                generateQuizBank(name, dc).collect {
-                    emit(it)
-                    if (it is ImportProgress.Done) legacyResult = it
+                var legacyDone: ImportProgress.Done? = null
+                generateQuizBank(name, dc).collect { progress ->
+                    when (progress) {
+                        is ImportProgress.Done -> legacyDone = progress
+                        else -> emit(progress)
+                    }
                 }
-                // Run new pipeline in shadow for comparison
+                if (legacyDone == null) {
+                    emit(ImportProgress.Error("旧流水线未生成任何题目"))
+                    return@flow
+                }
+
+                emit(ImportProgress.Log("> 题库已解析，正在验证新解析引擎...\n", 0))
+
+                val shadowDir = File(appContext.cacheDir, "quizforge-shadow-${System.nanoTime()}")
                 runCatching {
                     val entries = DocxArchiveLoader.load(appContext.contentResolver, uri)
                     val client = DeepSeekStructureLabelClient(api)
                     val pipeline = NewImportPipeline(client, LossyPolicy.STRICT)
                     val apiKey = settingsStore.getApiKey()
-                    val newResult = pipeline.execute(entries, apiKey, mediaDir)
-                    // Find legacy questions for comparison
-                    val legacyQuestions = quizRepository.getQuestions(legacyResult!!.bankId, com.zzy.quizforge.domain.model.QuizMode.SEQUENTIAL)
-                    val comparison = ShadowComparator.compare(legacyQuestions, newResult)
-                    val cmp = comparison
-                    emit(ImportProgress.Log("Shadow: L=${cmp.legacyCount} N=${cmp.newCount} orderMatch=${cmp.orderMatch} idMatch=${cmp.idSequenceMatch} idMismatch=${cmp.idMismatches.size} stemMismatch=${cmp.stemMismatches.size} ansMismatch=${cmp.answerMismatches.size} optMismatch=${cmp.optionKeyMismatches.size} imgMismatch=${cmp.imagePresenceMismatches.size} newRejected=${cmp.newRejectedCount} unassigned=${cmp.newUnassignedCount} lossy=${cmp.lossyCount}\n", 0))
+                    val newResult = pipeline.execute(entries, apiKey, shadowDir)
+                    val legacyQuestions = quizRepository.getQuestions(legacyDone.bankId, com.zzy.quizforge.domain.model.QuizMode.SEQUENTIAL)
+                    val cmp = ShadowComparator.compare(legacyQuestions, newResult)
+                    android.util.Log.d("ShadowImport",
+                        "L=${cmp.legacyCount} N=${cmp.newCount} orderMatch=${cmp.orderMatch} idMatch=${cmp.idSequenceMatch} " +
+                        "idMismatch=${cmp.idMismatches.size} stemMismatch=${cmp.stemMismatches.size} " +
+                        "ansMismatch=${cmp.answerMismatches.size} optMismatch=${cmp.optionKeyMismatches.size} " +
+                        "imgMismatch=${cmp.imagePresenceMismatches.size} newRejected=${cmp.newRejectedCount} " +
+                        "unassigned=${cmp.newUnassignedCount} lossy=${cmp.lossyCount}")
                 }.onFailure { e ->
-                    emit(ImportProgress.Log("Shadow comparison failed: ${e.message}\n", 0))
+                    android.util.Log.w("ShadowImport", "Shadow comparison failed: ${e.message}")
                 }
+                shadowDir.deleteRecursively()
+
+                emit(legacyDone)
             }
         }
     }.catch { error ->

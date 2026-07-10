@@ -4,13 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zzy.quizforge.data.local.QuizBankSummaryRow
 import com.zzy.quizforge.data.repository.QuizRepository
+import com.zzy.quizforge.domain.model.QuizMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class QuizBankSummaryUi(
@@ -21,27 +21,40 @@ data class QuizBankSummaryUi(
     val correctCount: Int,
     val wrongCount: Int,
     val lastPracticedAt: Long?,
+    val sequentialProgressIndex: Int?,
 ) {
     val accuracyText: String
         get() = if (answeredCount == 0) "未开始" else "${correctCount * 100 / answeredCount}%"
+
+    val sequentialActionText: String
+        get() {
+            if (questionCount <= 0) return "顺序"
+            val index = sequentialProgressIndex ?: 0
+            if (index <= 0) return "顺序"
+            val position = (index + 1).coerceIn(1, questionCount)
+            return "继续 $position/$questionCount"
+        }
 }
 
 data class HomeUiState(
     val banks: List<QuizBankSummaryUi> = emptyList(),
     val deleteError: String? = null,
+    val isLoading: Boolean = true,
 )
 
 class HomeViewModel(private val repository: QuizRepository) : ViewModel() {
-    val uiState: StateFlow<HomeUiState> = repository.observeBankSummaries()
-        .map { rows -> HomeUiState(rows.map { it.toUi() }) }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = HomeUiState(),
-        )
-
     private val _deleteError = MutableStateFlow<String?>(null)
-    val deleteError: StateFlow<String?> = _deleteError.asStateFlow()
+
+    val uiState: StateFlow<HomeUiState> = combine(
+        repository.observeBankSummaries(QuizMode.SEQUENTIAL.routeValue),
+        _deleteError,
+    ) { rows, deleteError ->
+        HomeUiState(
+            banks = rows.map { it.toUi() },
+            deleteError = deleteError,
+            isLoading = false,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
 
     fun clearDeleteError() {
         _deleteError.value = null
@@ -49,11 +62,8 @@ class HomeViewModel(private val repository: QuizRepository) : ViewModel() {
 
     fun deleteBank(bankId: Long) {
         viewModelScope.launch {
-            runCatching {
-                repository.deleteBank(bankId)
-            }.onFailure { e ->
-                _deleteError.value = e.message ?: "删除失败"
-            }
+            runCatching { repository.deleteBank(bankId) }
+                .onFailure { _deleteError.value = it.message ?: "删除题库失败" }
         }
     }
 
@@ -66,5 +76,6 @@ class HomeViewModel(private val repository: QuizRepository) : ViewModel() {
             correctCount = correctCount,
             wrongCount = wrongCount,
             lastPracticedAt = lastPracticedAt,
+            sequentialProgressIndex = sequentialProgressIndex,
         )
 }

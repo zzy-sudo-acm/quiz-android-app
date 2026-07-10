@@ -18,12 +18,13 @@ interface QuizBankDao {
             (SELECT COUNT(*) FROM answer_records r WHERE r.bankId = b.id) AS answeredCount,
             (SELECT COUNT(*) FROM answer_records r WHERE r.bankId = b.id AND r.isCorrect = 1) AS correctCount,
             (SELECT COUNT(*) FROM answer_records r WHERE r.bankId = b.id AND r.isCorrect = 0) AS wrongCount,
-            b.lastPracticedAt AS lastPracticedAt
+            b.lastPracticedAt AS lastPracticedAt,
+            (SELECT p.currentIndex FROM quiz_progress p WHERE p.bankId = b.id AND p.mode = :sequentialMode LIMIT 1) AS sequentialProgressIndex
         FROM quiz_banks b
         ORDER BY COALESCE(b.lastPracticedAt, b.updatedAt) DESC
         """,
     )
-    fun observeSummaries(): Flow<List<QuizBankSummaryRow>>
+    fun observeSummaries(sequentialMode: String = "sequential"): Flow<List<QuizBankSummaryRow>>
 
     @Query("SELECT COUNT(*) FROM quiz_banks")
     suspend fun countBanks(): Int

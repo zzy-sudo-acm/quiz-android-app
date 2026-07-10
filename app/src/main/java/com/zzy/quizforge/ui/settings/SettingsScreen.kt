@@ -139,18 +139,30 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 14.dp),
                 )
                 Text(
-                    "deepseek-v4-flash 当前价格远低于主流模型。\n" +
-                        "导入一份典型 Word 题库（兜底修复 30–80 段），实测消耗 ≈ 0.05–0.30 元，\n" +
-                        "比开屏 5 秒广告还便宜。1 元充值能修上千道。",
+                    "API 费用由 DeepSeek 按其当前公开计费标准收取。\n" +
+                        "QuizForge 不收取 API 费用。",
+                    color = TextMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                Text(
+                    "当前版本处于解析引擎兼容性验证模式。\n" +
+                        "导入结果仍由稳定解析器生成；新解析引擎会同步进行校验。\n" +
+                        "如配置 API Key，歧义题目片段可能调用 DeepSeek 辅助识别，\n" +
+                        "并产生少量 API 费用。",
                     color = TextMuted,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 6.dp),
                 )
                 Text(
                     if (state.isEncrypted) {
-                        "💡 Key 保存在你手机本地（加密），不上传任何服务器。"
+                        "💡 API Key 加密保存在本机，不会上传至 QuizForge 自有服务器。\n" +
+                            "调用 DeepSeek API 时，Key 会直接发送给 DeepSeek 用于认证。\n" +
+                            "AI 仅处理本地解析失败的单题片段或新解析引擎判定为歧义的题目片段，\n" +
+                            "不会主动把整篇 Word 文档发送给 DeepSeek。"
                     } else {
-                        "💡 Key 保存在你手机本地，不上传任何服务器。"
+                        "⚠ 安全存储不可用，App 不会保存 API Key。\n" +
+                            "当前需要 DeepSeek 的 AI 辅助功能将不可用。"
                     },
                     color = TextMuted,
                     style = MaterialTheme.typography.bodySmall,
@@ -167,12 +179,13 @@ fun SettingsScreen(
                 )
                 OutlinedButton(
                     onClick = { showClearDialog = true },
+                    enabled = !state.isClearing,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 12.dp),
                 ) {
                     Icon(Icons.Default.Delete, contentDescription = null, tint = ErrorRed)
-                    Text("清除所有数据", color = ErrorRed)
+                    Text(if (state.isClearing) "正在清除..." else "清除所有数据", color = ErrorRed)
                 }
             }
 
@@ -183,7 +196,7 @@ fun SettingsScreen(
                     color = TextMuted,
                     modifier = Modifier.padding(top = 6.dp),
                 )
-                Text("导入策略：${BuildConfig.IMPORT_STRATEGY}", color = TextMuted)
+                Text("导入策略：${com.zzy.quizforge.util.document.ImportRuntimeConfig.displayName}", color = TextMuted)
                 Text("GitHub: zzy-sudo-acm/quiz-app", color = TextMuted)
             }
         }

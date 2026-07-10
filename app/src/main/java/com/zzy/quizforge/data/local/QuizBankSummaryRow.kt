@@ -8,4 +8,5 @@ data class QuizBankSummaryRow(
     val correctCount: Int,
     val wrongCount: Int,
     val lastPracticedAt: Long?,
+    val sequentialProgressIndex: Int? = null,
 )

@@ -88,11 +88,11 @@ class ImportViewModel(
         if (!state.canGenerateV2) return
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isGenerating = true, generatedBankId = null, error = null, statusText = "Importing...") }
+            _uiState.update { it.copy(isGenerating = true, generatedBankId = null, error = null, statusText = "正在导入题库...") }
             repository.importFromUri(
                 name = state.bankName.ifBlank { "导入题库" },
                 uri = uri,
-                strategy = com.zzy.quizforge.util.document.ImportStrategy.SHADOW,
+                strategy = com.zzy.quizforge.util.document.ImportRuntimeConfig.currentStrategy,
             ).catch { error: Throwable ->
                 _uiState.update { it.copy(isGenerating = false, error = error.message ?: "导入失败", statusText = "导入失败") }
             }.collect { progress ->

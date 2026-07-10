@@ -55,8 +55,9 @@ class SettingsViewModel(
     fun clearAllData() {
         viewModelScope.launch {
             _uiState.update { it.copy(isClearing = true, savedMessage = null) }
-            quizRepository.clearAllData()
-            _uiState.update { it.copy(isClearing = false, savedMessage = "已清除数据，并重新导入预置题库") }
+            runCatching { quizRepository.clearAllData() }
+                .onSuccess { _uiState.update { it.copy(isClearing = false, savedMessage = "已清除数据，并重新导入预置题库") } }
+                .onFailure { e -> _uiState.update { it.copy(isClearing = false, savedMessage = "清除失败：${e.message ?: "未知错误"}") } }
         }
     }
 }
