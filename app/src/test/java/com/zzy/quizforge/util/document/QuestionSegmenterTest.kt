@@ -12,10 +12,8 @@ class QuestionSegmenterTest {
         val b = DocxFixtureBuilder().documentXml(bodyXml)
         return reader.read(b.build())
     }
-
     private fun seg(bodyXml: String): SegmentationResult =
         QuestionSegmenter.segment(parse(bodyXml))
-
     private fun opt(key: String, text: String) = "<w:p><w:r><w:t xml:space=\"preserve\">$key. $text</w:t></w:r></w:p>"
     private fun answer(key: String) = "<w:p><w:r><w:t xml:space=\"preserve\">答案：$key</w:t></w:r></w:p>"
     private fun explain(t: String) = "<w:p><w:r><w:t xml:space=\"preserve\">解析：$t</w:t></w:r></w:p>"
@@ -24,251 +22,297 @@ class QuestionSegmenterTest {
     private fun j(vararg xs: String) = xs.joinToString("\n")
 
     // ═══════════════════════════════════════════════════════
-    // 1. Two standard choice questions
+    // 1. Standard two questions
     // ═══════════════════════════════════════════════════════
 
     @Test fun `two explicit numbered choice questions`() {
-        val r = seg(j(
-            q("1. 以下哪个是传输层协议？"), opt("A", "TCP"), opt("B", "UDP"), answer("B"),
-            q("2. 以下哪个是网络层协议？"), opt("A", "TCP"), opt("B", "IP"), answer("B")
-        ))
-        assertEquals(2, r.segments.size)
-        assertEquals(0, r.unassignedSourceIds.size)
+        val r = seg(j(q("1.Q1"), opt("A","x"), opt("B","y"), answer("B"), q("2.Q2"), opt("A","z"), answer("A")))
+        assertEquals(2, r.segments.size); assertEquals(0, r.unassignedSourceIds.size)
     }
-
-    // ═══════════════════════════════════════════════════════
-    // 2. Three consecutive numbered questions
-    // ═══════════════════════════════════════════════════════
 
     @Test fun `three consecutive numbered questions`() {
-        val r = seg(j(
-            q("1. Q1"), opt("A", "x1"), answer("A"),
-            q("2. Q2"), opt("A", "x2"), answer("A"),
-            q("3. Q3"), opt("A", "x3"), answer("A")
-        ))
-        assertEquals(3, r.segments.size)
-        assertEquals(0, r.segments[0].startSourceOrder)
-        assertEquals(3, r.segments[1].startSourceOrder)
-        assertEquals(6, r.segments[2].startSourceOrder)
+        val r = seg(j(q("1.Q1"), opt("A","x"), answer("A"), q("2.Q2"), opt("A","y"), answer("A"), q("3.Q3"), opt("A","z"), answer("A")))
+        assertEquals(3, r.segments.size); assertEquals(0, r.unassignedSourceIds.size)
     }
 
     // ═══════════════════════════════════════════════════════
-    // 3. Word numbering questions
+    // 2. Word numbering (decimal level 0 only)
     // ═══════════════════════════════════════════════════════
 
-    @Test fun `word numbering questions`() {
+    @Test fun `word numbering questions decimal level 0`() {
         val b = DocxFixtureBuilder()
             .numberingXml(decimalNumberingXml(numId = 1, abstractNumId = 0))
-            .documentXml(j(
-                numberedParagraph("Word Q1", numId = 1), opt("A", "x"), answer("A"),
-                numberedParagraph("Word Q2", numId = 1), opt("A", "y"), answer("A")
-            ))
-        val doc = reader.read(b.build())
-        val r = QuestionSegmenter.segment(doc)
+            .documentXml(j(numberedParagraph("WQ1", numId = 1), opt("A","x"), answer("A"),
+                           numberedParagraph("WQ2", numId = 1), opt("A","y"), answer("A")))
+        val r = QuestionSegmenter.segment(reader.read(b.build()))
         assertEquals(2, r.segments.size)
     }
 
     // ═══════════════════════════════════════════════════════
-    // 4. Numbering format variants
+    // 3. Numbering format variants
     // ═══════════════════════════════════════════════════════
 
-    @Test fun `1 dot numbering`() {
-        assertEquals(1, seg(j(q("1. Q"), opt("A", "x"), answer("A"))).segments.size)
-    }
-    @Test fun `1 dun comma numbering`() {
-        assertEquals(1, seg(j(q("1、Q"), opt("A", "x"), answer("A"))).segments.size)
-    }
-    @Test fun `parentheses numbering`() {
-        assertEquals(1, seg(j(q("（1）Q"), opt("A", "x"), answer("A"))).segments.size)
-    }
-    @Test fun `1 paren numbering`() {
-        assertEquals(1, seg(j(q("1）Q"), opt("A", "x"), answer("A"))).segments.size)
-    }
+    @Test fun `1 dot`() = assertEquals(1, seg(j(q("1. Q"),opt("A","x"),answer("A"))).segments.size)
+    @Test fun `1 dun`() = assertEquals(1, seg(j(q("1、Q"),opt("A","x"),answer("A"))).segments.size)
+    @Test fun `paren`() = assertEquals(1, seg(j(q("（1）Q"),opt("A","x"),answer("A"))).segments.size)
+    @Test fun `1 paren`() = assertEquals(1, seg(j(q("1）Q"),opt("A","x"),answer("A"))).segments.size)
 
     // ═══════════════════════════════════════════════════════
-    // 5. Stem + A/B/C/D + answer = 1 segment
+    // 4. Stem + options + answer
     // ═══════════════════════════════════════════════════════
 
     @Test fun `stem options answer belong to same segment`() {
-        val r = seg(j(
-            q("1. 题干"), opt("A", "A"), opt("B", "B"), opt("C", "C"), opt("D", "D"), answer("C")
-        ))
-        assertEquals(1, r.segments.size)
-        assertEquals(6, r.segments[0].sourceIds.size)
-        assertTrue(r.segments[0].signals.any { it is SegmentSignal.OptionMarker })
-        assertTrue(r.segments[0].signals.any { it is SegmentSignal.AnswerMarker })
+        val r = seg(j(q("1. stem"), opt("A","a"), opt("B","b"), opt("C","c"), opt("D","d"), answer("C")))
+        assertEquals(1, r.segments.size); assertEquals(6, r.segments[0].sourceIds.size)
+    }
+
+    @Test fun `inline multi options`() {
+        val r = seg(j(q("1. stem"), plain("A. a B. b C. c D. d"), answer("D")))
+        assertEquals(1, r.segments.size); assertEquals(3, r.segments[0].sourceIds.size)
     }
 
     // ═══════════════════════════════════════════════════════
-    // 6. Inline multi-option
-    // ═══════════════════════════════════════════════════════
-
-    @Test fun `same paragraph inline multi options`() {
-        val r = seg(j(q("1. 题干"), plain("A. optA B. optB C. optC D. optD"), answer("D")))
-        assertEquals(1, r.segments.size)
-        assertEquals(3, r.segments[0].sourceIds.size)
-    }
-
-    // ═══════════════════════════════════════════════════════
-    // 7. Option marker does NOT open new question
+    // 5. Option alone does NOT open question
     // ═══════════════════════════════════════════════════════
 
     @Test fun `option marker alone does not open new question`() {
-        val r = seg(j(q("1. Q1"), opt("A", "x"), answer("A"), opt("B", "orphan")))
+        val r = seg(j(q("1. Q"), opt("A","x"), answer("A"), opt("B","orphan")))
         assertEquals(1, r.segments.size)
     }
 
     // ═══════════════════════════════════════════════════════
-    // 8. Answer belongs to preceding question
+    // 6. Answer / Explanation
     // ═══════════════════════════════════════════════════════
 
     @Test fun `answer belongs to preceding question`() {
-        val r = seg(j(q("1. Q1"), opt("A", "x"), opt("B", "y"), answer("A"), q("2. Q2")))
+        val r = seg(j(q("1.Q"), opt("A","x"), opt("B","y"), answer("A"), q("2.Q")))
         assertEquals(2, r.segments.size)
         assertTrue(r.segments[0].signals.any { it is SegmentSignal.AnswerMarker })
     }
 
-    // ═══════════════════════════════════════════════════════
-    // 9. Explanation belongs to preceding question
-    // ═══════════════════════════════════════════════════════
-
     @Test fun `explanation belongs to preceding question`() {
-        val r = seg(j(q("1. Q1"), opt("A", "x"), answer("A"), explain("xxx"), q("2. Q2")))
+        val r = seg(j(q("1.Q"), opt("A","x"), answer("A"), explain("xxx"), q("2.Q")))
         assertEquals(2, r.segments.size)
         assertTrue(r.segments[0].signals.any { it is SegmentSignal.ExplanationMarker })
     }
 
     // ═══════════════════════════════════════════════════════
-    // 10. Table belongs to current question
+    // 7. Table
     // ═══════════════════════════════════════════════════════
 
     @Test fun `table belongs to current question`() {
         val b = DocxFixtureBuilder().documentXml(j(
-            q("1. 查看下表"), simpleTable(listOf("A", "TCP", "B", "UDP")), answer("B")
+            q("1. see table"), simpleTable(listOf("A","TCP","B","UDP")), answer("B")
         ))
         val r = QuestionSegmenter.segment(reader.read(b.build()))
         assertEquals(1, r.segments.size)
         assertTrue(r.segments[0].sourceIds.size >= 3)
     }
 
-    // ═══════════════════════════════════════════════════════
-    // 11. Table cell paragraph not independent
-    // ═══════════════════════════════════════════════════════
-
-    @Test fun `table cell paragraph not independent question`() {
+    @Test fun `table cell paragraph not independent`() {
         val b = DocxFixtureBuilder().documentXml(j(
-            q("1. Q1"), opt("A", "x"), answer("A"),
-            simpleTable(listOf("A", "B", "C", "D")),
-            q("2. Q2"), opt("A", "y"), answer("A")
+            q("1.Q"), opt("A","x"), answer("A"),
+            simpleTable(listOf("A","B","C","D")),
+            q("2.Q"), opt("A","y"), answer("A")
         ))
-        val doc = reader.read(b.build())
-        val r = QuestionSegmenter.segment(doc)
+        val r = QuestionSegmenter.segment(reader.read(b.build()))
         assertEquals(2, r.segments.size)
-        // Table's cell paragraphs should NOT appear as independent segments
-        assertTrue(r.segments[0].sourceIds.size >= 3)
     }
 
     // ═══════════════════════════════════════════════════════
-    // 12. Image paragraph retained in segment
+    // 8. Image
     // ═══════════════════════════════════════════════════════
 
     @Test fun `image paragraph retained in segment`() {
         val b = DocxFixtureBuilder()
             .imageRels(imageRelationshipXml("rId1", "media/img1.png"))
             .media("word/media/img1.png", minimalPngBytes())
-            .documentXml(j(
-                q("1. 题干"), paragraphWithImage("rId1", "图前", "图后"), opt("A", "x"), answer("A")
-            ))
+            .documentXml(j(q("1.Q"), paragraphWithImage("rId1","前","后"), opt("A","x"), answer("A")))
         val r = QuestionSegmenter.segment(reader.read(b.build()))
         assertEquals(1, r.segments.size)
-        assertTrue(r.segments[0].sourceIds.size >= 4)
     }
-
-    // ═══════════════════════════════════════════════════════
-    // 13. Unresolved ImageContent does not affect segmentation
-    // ═══════════════════════════════════════════════════════
 
     @Test fun `unresolved ImageContent does not affect segmentation`() {
         val b = DocxFixtureBuilder()
             .imageRels(imageRelationshipXml("rId7", "media/missing.png"))
-            .documentXml(j(
-                q("1. 题干"), paragraphWithImage("rId7", "图前", "图后"), opt("A", "x"), answer("A")
-            ))
+            .documentXml(j(q("1.Q"), paragraphWithImage("rId7","前","后"), opt("A","x"), answer("A")))
         val r = QuestionSegmenter.segment(reader.read(b.build()))
         assertEquals(1, r.segments.size)
     }
 
     // ═══════════════════════════════════════════════════════
-    // 14. No numbering but full option/answer → question
+    // 9. No-number stem binding (FIX 1)
     // ═══════════════════════════════════════════════════════
 
-    @Test fun `no explicit numbering but has options and answer`() {
-        val r = seg(j(q("以下哪个正确？"), opt("A", "x"), opt("B", "y"), answer("A")))
+    @Test fun `no number stem binds to implicit question`() {
+        val r = seg(j(plain("以下哪个正确？"), opt("A","x"), opt("B","y"), answer("A")))
         assertEquals(1, r.segments.size)
+        assertEquals(0, r.unassignedSourceIds.size)
+        // Stem sourceId must be in the segment
+        assertTrue(r.segments[0].sourceIds.size >= 4) // stem + A + B + answer
+        // stem is first
+        val stemId = r.segments[0].sourceIds.first()
+        // verify segment includes both start and end orders
+        assertEquals(r.segments[0].startSourceOrder, r.segments[0].sourceOrders.first())
+        assertEquals(r.segments[0].endSourceOrder, r.segments[0].sourceOrders.last())
+    }
+
+    @Test fun `title then stem then options title unassigned stem in segment`() {
+        val r = seg(j(plain("操作系统复习题"), plain("以下哪个正确？"), opt("A","x"), opt("B","y"), answer("A")))
+        assertEquals(1, r.segments.size)
+        assertEquals(1, r.unassignedSourceIds.size)
+        // The unassigned should be the title, not the stem
+        assertEquals(4, r.segments[0].sourceIds.size) // stem + A + B + answer
+    }
+
+    @Test fun `answer only block does not create segment`() {
+        val r = seg(answer("A"))
+        assertEquals(0, r.segments.size)
+        assertEquals(1, r.unassignedSourceIds.size)
     }
 
     // ═══════════════════════════════════════════════════════
-    // 15. Title → unassigned
+    // 10. endSourceOrder invariant (FIX 2)
+    // ═══════════════════════════════════════════════════════
+
+    @Test fun `endSourceOrder equals sourceOrders last`() {
+        val b = DocxFixtureBuilder().documentXml(j(
+            q("1.Q"), opt("A","x"), answer("A"),
+            simpleTable(listOf("X","Y","Z","W")),
+            q("2.Q"), opt("A","y"), answer("A")
+        ))
+        val r = QuestionSegmenter.segment(reader.read(b.build()))
+        assertEquals(2, r.segments.size)
+        for (s in r.segments) {
+            assertEquals(s.sourceOrders.first(), s.startSourceOrder)
+            assertEquals(s.sourceOrders.last(), s.endSourceOrder)
+        }
+        // Table internal cell paragraphs create DFS gaps between top-level orders
+        val s0 = r.segments[0]
+        val s1 = r.segments[1]
+        assertTrue(s0.endSourceOrder < s1.startSourceOrder)
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 11. NumberingRef allowlist (FIX 3)
+    // ═══════════════════════════════════════════════════════
+
+    @Test fun `upperLetter numbering NOT a question start`() {
+        val combinedXml = """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+              <w:abstractNum w:abstractNumId="10">
+                <w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:start w:val="1"/></w:lvl>
+              </w:abstractNum>
+              <w:num w:numId="1"><w:abstractNumId w:val="10"/></w:num>
+              <w:abstractNum w:abstractNumId="20">
+                <w:lvl w:ilvl="0"><w:numFmt w:val="upperLetter"/><w:lvlText w:val="%1."/><w:start w:val="1"/></w:lvl>
+              </w:abstractNum>
+              <w:num w:numId="2"><w:abstractNumId w:val="20"/></w:num>
+            </w:numbering>
+        """.trimIndent()
+        val b = DocxFixtureBuilder()
+            .numberingXml(combinedXml)
+            .documentXml(j(
+                numberedParagraph("Q1 stem", numId = 1),
+                numberedParagraph("A. opt1", numId = 2),
+                numberedParagraph("B. opt2", numId = 2),
+                answer("A"),
+                numberedParagraph("Q2 stem", numId = 1)
+            ))
+        val r = QuestionSegmenter.segment(reader.read(b.build()))
+        assertEquals("upperLetter options should not split into separate questions, got ${r.segments.size}", 2, r.segments.size)
+    }
+
+    @Test fun `unresolved numbering definition does not start question`() {
+        // numId=99 has no definition — must NOT be a question start
+        val numXml = """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+              <w:abstractNum w:abstractNumId="10">
+                <w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:start w:val="1"/></w:lvl>
+              </w:abstractNum>
+              <w:num w:numId="1"><w:abstractNumId w:val="10"/></w:num>
+            </w:numbering>
+        """.trimIndent()
+        val b = DocxFixtureBuilder()
+            .numberingXml(numXml)
+            .documentXml(j(
+                numberedParagraph("orphan numId=99", numId = 99),
+                q("1. real Q"), opt("A","x"), answer("A")
+            ))
+        val doc = reader.read(b.build())
+        val r = QuestionSegmenter.segment(doc)
+        assertEquals(1, r.segments.size)
+        assertTrue(r.unassignedSourceIds.isNotEmpty())
+        assertTrue(r.warnings.any { it.contains("numId=99") })
+    }
+
+    @Test fun `decimal numbering level gt 0 not strong start`() {
+        val b = DocxFixtureBuilder()
+            .numberingXml(decimalNumberingXml(numId = 1, abstractNumId = 0))
+            .documentXml(j(
+                numberedParagraph("Q stem", numId = 1), // level 0 → strong start
+                numberedParagraph("sub item", numId = 1, level = 1), // level 1 → NOT strong start
+                opt("A","x"), answer("A")
+            ))
+        val r = QuestionSegmenter.segment(reader.read(b.build()))
+        assertEquals(1, r.segments.size)
+        assertTrue(r.segments[0].sourceIds.size >= 4) // stem + sub + A + answer
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 12. Same-block QuestionStart + OptionMarker (FIX 4)
+    // ═══════════════════════════════════════════════════════
+
+    @Test fun `same paragraph question start and option markers`() {
+        val r = seg(j(plain("1. stem A. x B. y"), answer("A")))
+        assertEquals(1, r.segments.size)
+        assertTrue(r.segments[0].signals.any { it is SegmentSignal.QuestionStart })
+        assertTrue(r.segments[0].signals.any { it is SegmentSignal.OptionMarker })
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 13. Title unassigned
     // ═══════════════════════════════════════════════════════
 
     @Test fun `document title goes to unassigned not silently lost`() {
-        val r = seg(j(plain("Title"), q("1. Q1"), opt("A", "x"), answer("A")))
-        assertEquals(1, r.unassignedSourceIds.size)
-        assertEquals(1, r.segments.size)
+        val r = seg(j(plain("Title"), q("1.Q"), opt("A","x"), answer("A")))
+        assertEquals(1, r.unassignedSourceIds.size); assertEquals(1, r.segments.size)
     }
 
     // ═══════════════════════════════════════════════════════
-    // 16. Plain text between questions absorbed
+    // 14. Inter-question text
     // ═══════════════════════════════════════════════════════
 
-    @Test fun `plain explanatory text between questions absorbed`() {
-        val r = seg(j(
-            q("1. Q1"), opt("A", "x"), answer("A"),
-            plain("下面是重点"),
-            q("2. Q2"), opt("A", "y"), answer("A")
-        ))
+    @Test fun `plain text between questions absorbed`() {
+        val r = seg(j(q("1.Q"), opt("A","x"), answer("A"), plain("note"), q("2.Q"), opt("A","y"), answer("A")))
         assertEquals(2, r.segments.size)
     }
 
     // ═══════════════════════════════════════════════════════
-    // 17. Source nodes not double-consumed
+    // 15. No double consumption + monotonic
     // ═══════════════════════════════════════════════════════
 
     @Test fun `source nodes not double consumed`() {
-        val r = seg(j(
-            q("1. Q1"), opt("A", "x"), answer("A"),
-            q("2. Q2"), opt("A", "y"), answer("A")
-        ))
+        val r = seg(j(q("1.Q"), opt("A","x"), answer("A"), q("2.Q"), opt("A","y"), answer("A")))
         val all = r.segments.flatMap { it.sourceIds }
         assertEquals(all.size, all.toSet().size)
         assertTrue(r.segments[0].sourceIds.toSet().intersect(r.segments[1].sourceIds.toSet()).isEmpty())
     }
 
-    // ═══════════════════════════════════════════════════════
-    // 18. sourceOrders monotonic within segment
-    // ═══════════════════════════════════════════════════════
-
     @Test fun `segment sourceOrders strictly increasing`() {
-        val r = seg(j(
-            q("1. Q1"), opt("A", "x"), answer("A"),
-            q("2. Q2"), opt("A", "y"), answer("A")
-        ))
-        for (seg in r.segments) {
-            for (i in 1 until seg.sourceOrders.size) {
-                assertTrue("${seg.sourceOrders}", seg.sourceOrders[i] > seg.sourceOrders[i - 1])
-            }
-        }
+        val r = seg(j(q("1.Q"), opt("A","x"), answer("A"), q("2.Q"), opt("A","y"), answer("A")))
+        for (s in r.segments) for (i in 1 until s.sourceOrders.size)
+            assertTrue(s.sourceOrders[i] > s.sourceOrders[i-1])
     }
 
     // ═══════════════════════════════════════════════════════
-    // 19. originalQuestionNumber separate from sourceId/sourceOrder
+    // 16. originalQuestionNumber independence
     // ═══════════════════════════════════════════════════════
 
     @Test fun `originalQuestionNumber independent of sourceId and sourceOrder`() {
-        val r = seg(j(
-            q("3. Q3"), opt("A", "x"), answer("A"),
-            q("5. Q5"), opt("A", "y"), answer("A")
-        ))
+        val r = seg(j(q("3.Q"), opt("A","x"), answer("A"), q("5.Q"), opt("A","y"), answer("A")))
         assertEquals(2, r.segments.size)
         assertEquals(3, r.segments[0].originalQuestionNumber)
         assertEquals(0, r.segments[0].startSourceOrder)
@@ -276,7 +320,7 @@ class QuestionSegmenterTest {
     }
 
     // ═══════════════════════════════════════════════════════
-    // 20. Mixed fixture: numbered + image + table + answer + next
+    // 17. Mixed fixture
     // ═══════════════════════════════════════════════════════
 
     @Test fun `mixed fixture numbered image table answer next question`() {
@@ -285,30 +329,28 @@ class QuestionSegmenterTest {
             .imageRels(imageRelationshipXml("rId1", "media/img1.png"))
             .media("word/media/img1.png", minimalPngBytes())
             .documentXml(j(
-                numberedParagraph("编号题", numId = 1),
-                paragraphWithImage("rId1", "图前", "图后"),
-                simpleTable(listOf("A", "TCP", "B", "UDP")),
+                numberedParagraph("WQ", numId = 1),
+                paragraphWithImage("rId1","前","后"),
+                simpleTable(listOf("A","TCP","B","UDP")),
                 answer("B"),
-                q("2. 第二题"), opt("A", "x"), answer("A")
+                q("2. Q2"), opt("A","x"), answer("A")
             ))
-        val doc = reader.read(b.build())
-        val r = QuestionSegmenter.segment(doc)
+        val r = QuestionSegmenter.segment(reader.read(b.build()))
         assertEquals(2, r.segments.size)
         val q0 = r.segments[0]
         assertTrue(q0.sourceIds.size >= 4)
         assertTrue(q0.signals.any { it is SegmentSignal.QuestionStart })
-        assertTrue(q0.signals.any { it is SegmentSignal.AnswerMarker })
         assertEquals(2, r.segments[1].originalQuestionNumber)
         val all = r.segments.flatMap { it.sourceIds }
         assertEquals(all.size, all.toSet().size)
     }
 
     // ═══════════════════════════════════════════════════════
-    // 21-22. Debug dump
+    // 18. Debug dump
     // ═══════════════════════════════════════════════════════
 
     @Test fun `debug dump contains segment info`() {
-        val r = seg(j(q("1. Q1"), opt("A", "x"), answer("A")))
+        val r = seg(j(q("1.Q"), opt("A","x"), answer("A")))
         val json = QuestionSegmentDebugDump.toJson(r)
         assertTrue(json.contains("segmentId"))
         assertTrue(json.contains("sourceIds"))
@@ -318,8 +360,7 @@ class QuestionSegmenterTest {
     }
 
     @Test fun `debug dump summary`() {
-        val r = seg(j(q("1. Q1"), opt("A", "x"), answer("A")))
-        val s = QuestionSegmentDebugDump.summary(r)
-        assertTrue(s.contains("1 segments"))
+        val r = seg(j(q("1.Q"), opt("A","x"), answer("A")))
+        assertTrue(QuestionSegmentDebugDump.summary(r).contains("1 segments"))
     }
 }

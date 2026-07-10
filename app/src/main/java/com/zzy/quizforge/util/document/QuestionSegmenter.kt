@@ -21,7 +21,7 @@ object QuestionSegmenter {
         val segments = mutableListOf<QuestionSegment>()
         val unassigned = mutableListOf<String>()
 
-        val topBlocks = document.blocks // only top-level blocks
+        val topBlocks = document.blocks
         if (topBlocks.isEmpty()) {
             return SegmentationResult(emptyList(), emptyList(), emptyList(), 0)
         }
@@ -32,36 +32,57 @@ object QuestionSegmenter {
             signals = signals,
         )
 
-        // State machine: track current segment's block accumulation
         var segmentIdCounter = 0
         var currentSourceIds = mutableListOf<String>()
         var currentSourceOrders = mutableListOf<Int>()
-        var currentStartOrder = -1
         var currentQuestionNum: Int? = null
         var currentSignals = mutableListOf<SegmentSignal>()
         var consumed = mutableSetOf<Int>()
         var inQuestion = false
+        val pendingNeutral = mutableListOf<DocumentBlock>()
 
-        fun emitSegment(endOrder: Int) {
+        fun flushPendingToUnassigned() {
+            for (b in pendingNeutral) {
+                unassigned += b.sourceId
+                consumed += b.sourceOrder
+                signals += SegmentSignal.UnassignedBlock(b.sourceId, b.sourceOrder, "无法绑定到任何题目")
+            }
+            pendingNeutral.clear()
+        }
+
+        fun emitSegment() {
             if (currentSourceIds.isEmpty()) return
+            val orders = currentSourceOrders.toList()
             val seg = QuestionSegment(
                 segmentId = "q$segmentIdCounter",
                 sourceIds = currentSourceIds.toList(),
-                sourceOrders = currentSourceOrders.toList(),
-                startSourceOrder = currentStartOrder,
-                endSourceOrder = endOrder,
+                sourceOrders = orders,
+                startSourceOrder = orders.first(),
+                endSourceOrder = orders.last(),
                 originalQuestionNumber = currentQuestionNum,
                 signals = currentSignals.toList(),
             )
             segments += seg
             segmentIdCounter++
-            // Reset
             currentSourceIds = mutableListOf()
             currentSourceOrders = mutableListOf<Int>()
-            currentStartOrder = -1
             currentQuestionNum = null
             currentSignals = mutableListOf()
             inQuestion = false
+        }
+
+        fun bindPendingStem(): Boolean {
+            // Bind the most recent neutral ParagraphBlock as stem candidate
+            val stemIdx = pendingNeutral.indexOfLast { it is ParagraphBlock }
+            if (stemIdx < 0) return false
+            val stem = pendingNeutral.removeAt(stemIdx)
+            // Flush all preceding neutral blocks to unassigned
+            flushPendingToUnassigned()
+            currentSourceIds += stem.sourceId
+            currentSourceOrders += stem.sourceOrder
+            consumed += stem.sourceOrder
+            classifyBlockSignals(stem, signals, currentSignals)
+            return true
         }
 
         for (block in topBlocks) {
@@ -74,59 +95,72 @@ object QuestionSegmenter {
             val qStart = detectQuestionStart(block, ctx)
 
             if (qStart != null) {
-                // Strong question-start signal: close previous, start new
-                if (inQuestion) {
-                    emitSegment(order - 1)
-                }
+                // Strong question start: flush pending, close previous, start new
+                flushPendingToUnassigned()
+                if (inQuestion) emitSegment()
                 inQuestion = true
-                currentStartOrder = order
                 currentQuestionNum = qStart.questionNumber
-                if (currentSourceIds.isEmpty()) {
-                    // Could be either a fresh start or residual from emit
-                }
-                // Absorb this block as the question's first block
                 currentSourceIds += block.sourceId
                 currentSourceOrders += order
                 consumed += order
                 signals += SegmentSignal.QuestionStart(block.sourceId, order, qStart.reason)
                 currentSignals += SegmentSignal.QuestionStart(block.sourceId, order, qStart.reason)
+                classifyBlockSignals(block, signals, currentSignals)
                 continue
             }
 
             if (!inQuestion) {
-                // Check if this block has option/answer markers — could be a question
-                // without explicit numbering (implicit start)
                 val hasOption = detectOptionMarkers(block).isNotEmpty()
                 val hasAnswer = detectAnswerMarker(block)
-                if (hasOption || hasAnswer) {
+
+                if (hasAnswer && !hasOption) {
+                    // Answer alone cannot start a question — keep as pending/unassigned
+                    pendingNeutral += block
+                    continue
+                }
+
+                if (hasOption) {
+                    // Implicit question start via option markers
                     inQuestion = true
-                    currentStartOrder = order
+                    // Try to bind the most recent pending neutral ParagraphBlock as stem
+                    val stemIdx = pendingNeutral.indexOfLast { it is ParagraphBlock }
+                    if (stemIdx >= 0) {
+                        val stem = pendingNeutral.removeAt(stemIdx)
+                        // Flush all remaining pending (before the stem) to unassigned
+                        flushPendingToUnassigned()
+                        // Absorb stem
+                        currentSourceIds += stem.sourceId
+                        currentSourceOrders += stem.sourceOrder
+                        consumed += stem.sourceOrder
+                        classifyBlockSignals(stem, signals, currentSignals)
+                    } else {
+                        // No stem to bind — flush everything
+                        flushPendingToUnassigned()
+                    }
                     currentSourceIds += block.sourceId
                     currentSourceOrders += order
                     consumed += order
                     classifyBlockSignals(block, signals, currentSignals)
                     continue
                 }
-                // No question signal — unassigned
-                unassigned += block.sourceId
-                consumed += order
-                signals += SegmentSignal.UnassignedBlock(block.sourceId, order, "无题目信号")
+
+                // Neutral block — defer decision
+                pendingNeutral += block
                 continue
             }
 
-            // Already in a question — absorb this block
+            // Already in a question — absorb
             currentSourceIds += block.sourceId
             currentSourceOrders += order
             consumed += order
             classifyBlockSignals(block, signals, currentSignals)
         }
 
-        // Emit final segment
-        if (inQuestion || currentSourceIds.isNotEmpty()) {
-            emitSegment((topBlocks.lastOrNull()?.sourceOrder ?: 0))
-        }
+        // End of blocks: flush remaining
+        if (inQuestion) emitSegment()
+        flushPendingToUnassigned()
 
-        // Any unconsumed blocks become unassigned
+        // Any unconsumed → unassigned
         for (block in topBlocks) {
             if (block.sourceOrder !in consumed) {
                 unassigned += block.sourceId
@@ -182,8 +216,7 @@ object QuestionSegmenter {
         if (block !is ParagraphBlock) return null
         val text = extractParagraphText(block)
 
-        // 1. Explicit numbering patterns
-        // "1.", "1、", "1．", "1)", "1）"
+        // 1. Explicit numbering patterns: "1.", "1、", "1．", "1)", "1）", "（1）", "第1题"
         val explicitPatterns = listOf(
             Regex("""^\s*(\d{1,4})\s*[\.\．]\s*"""),
             Regex("""^\s*(\d{1,4})\s*[、]\s*"""),
@@ -194,16 +227,31 @@ object QuestionSegmenter {
         for (regex in explicitPatterns) {
             regex.find(text)?.let { match ->
                 val num = match.groupValues[1].toIntOrNull()
-                if (num != null) {
-                    return QuestionStartInfo(num, "显式题号 $num")
-                }
+                if (num != null) return QuestionStartInfo(num, "显式题号 $num")
             }
         }
 
-        // 2. Word NumberingRef
+        // 2. Word NumberingRef — only strong question-like formats at level 0
         val numbering = block.numbering
         if (numbering != null) {
-            return QuestionStartInfo(null, "Word numId=${numbering.numId} ilvl=${numbering.level}")
+            val def = ctx.numberingDefs[numbering.numId]
+            if (def == null) {
+                ctx.warnings += "NumberingRef numId=${numbering.numId} 未在 numbering.xml 中找到定义"
+                return null
+            }
+            val levelDef = def.levels[numbering.level]
+            if (levelDef == null) {
+                ctx.warnings += "NumberingRef numId=${numbering.numId} level=${numbering.level} 在定义中不存在"
+                return null
+            }
+            // Only level 0 numbering counts as strong question start
+            if (numbering.level != 0) return null
+            // Only numeric formats: decimal, decimalZero
+            val fmt = levelDef.numFmt?.lowercase()
+            if (fmt in setOf("decimal", "decimalzero")) {
+                return QuestionStartInfo(null, "Word numbering numId=${numbering.numId} decimal level=0")
+            }
+            // Other formats (upperLetter, bullet, etc.) are NOT question starts
         }
 
         return null
@@ -223,7 +271,6 @@ object QuestionSegmenter {
         return if (match != null) {
             listOf(DetectedOption(match.groupValues[1].uppercase()))
         } else {
-            // Check for inline multi-option: "A. xxx B. yyy" etc.
             val inlineMatches = Regex("""([A-Ha-h])\s*[\.\．、:：\)）]\s*""").findAll(text).toList()
             if (inlineMatches.size >= 2) {
                 inlineMatches.map { DetectedOption(it.groupValues[1].uppercase()) }
