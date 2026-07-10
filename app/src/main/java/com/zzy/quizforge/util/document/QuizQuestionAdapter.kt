@@ -53,13 +53,17 @@ object QuizQuestionAdapter {
             )
         }
 
-        // Build options from slices
+        // Build options from slices with resolved image paths
         val options = draft.optionSlices.map { slice ->
+            val optImg = slice.imageRefs.firstOrNull { it.resolvedLocalPath != null }
+            if (optImg == null && slice.imageRefs.any { it.mediaId != null }) {
+                warnings += "Option ${slice.key} image unresolved: mediaId without localPath"
+            }
             QuestionOption(
                 key = slice.key,
                 text = slice.text,
-                image = slice.imageRefs.firstOrNull()?.mediaId,
-                imageUri = null,
+                image = null,
+                imageUri = optImg?.resolvedLocalPath,
             )
         }
 

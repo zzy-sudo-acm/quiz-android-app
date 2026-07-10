@@ -36,7 +36,8 @@ object AiResponseParser {
             // optionKey: null (not present), JSON null, or string are all valid
             if (ok != null && !ok.isJsonNull && (!ok.isJsonPrimitive || !ok.asJsonPrimitive.isString)) { errors += "annotations[$i]: optionKey not string|null"; continue }
 
-            raw += RawAiAnnotation(sid.asString, lbl.asString, so.asInt, eo.asInt, ok?.asString)
+            val optionKey = when { ok == null -> null; ok.isJsonNull -> null; else -> ok.asString }
+            raw += RawAiAnnotation(sid.asString, lbl.asString, so.asInt, eo.asInt, optionKey)
         }
         return ParseResult(raw, errors)
     }

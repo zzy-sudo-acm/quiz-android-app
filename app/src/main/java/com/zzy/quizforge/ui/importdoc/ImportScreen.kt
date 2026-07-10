@@ -124,8 +124,8 @@ fun ImportScreen(
             }
 
             Button(
-                onClick = viewModel::generate,
-                enabled = state.canGenerate,
+                onClick = viewModel::generateV2,
+                enabled = state.canGenerateV2,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Default.PlayArrow, contentDescription = null)

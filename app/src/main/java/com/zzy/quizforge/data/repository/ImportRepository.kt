@@ -19,6 +19,7 @@ import com.zzy.quizforge.util.document.NewImportPipeline
 import com.zzy.quizforge.util.document.ShadowComparator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import java.io.File
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -43,6 +44,7 @@ class ImportRepository(
         uri: Uri,
         strategy: ImportStrategy = ImportStrategy.LEGACY,
     ): Flow<ImportProgress> = flow {
+        val mediaDir = File(appContext.filesDir, "docx-images-ir")
         when (strategy) {
             ImportStrategy.LEGACY -> {
                 val dc = extractDocx(uri)
@@ -53,15 +55,15 @@ class ImportRepository(
                 val client = DeepSeekStructureLabelClient(api)
                 val pipeline = NewImportPipeline(client, LossyPolicy.STRICT)
                 val apiKey = settingsStore.getApiKey()
-                val result = pipeline.execute(entries, apiKey)
+                val result = pipeline.execute(entries, apiKey, mediaDir)
 
                 if (result.questions.isEmpty()) {
                     emit(ImportProgress.Error("Document IR pipeline 未生成任何有效题目"))
                     return@flow
                 }
-
                 val bankId = quizRepository.createBank(name, result.questions)
-                val msg = "新流水线: ${result.questions.size}题 (确定${result.deterministicCompleteCount}+AI${result.aiAcceptedCount})"
+                val msg = "新流水线: ${result.questions.size}题"
+                emit(ImportProgress.Done(bankId, result.questions.size, message = msg))
                 emit(ImportProgress.Done(bankId, result.questions.size, message = msg))
             }
             ImportStrategy.SHADOW -> {
@@ -78,7 +80,7 @@ class ImportRepository(
                     val client = DeepSeekStructureLabelClient(api)
                     val pipeline = NewImportPipeline(client, LossyPolicy.STRICT)
                     val apiKey = settingsStore.getApiKey()
-                    val newResult = pipeline.execute(entries, apiKey)
+                    val newResult = pipeline.execute(entries, apiKey, mediaDir)
                     // Find legacy questions for comparison
                     val legacyQuestions = quizRepository.getQuestions(legacyResult!!.bankId, com.zzy.quizforge.domain.model.QuizMode.SEQUENTIAL)
                     val comparison = ShadowComparator.compare(legacyQuestions, newResult)

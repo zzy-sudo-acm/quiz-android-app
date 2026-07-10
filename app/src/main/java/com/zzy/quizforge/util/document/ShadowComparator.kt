@@ -24,10 +24,18 @@ object ShadowComparator {
         val optMismatches = mutableListOf<String>()
         val imgMismatches = mutableListOf<String>()
 
-        // Real order: compare originalId sequences
+        // Real order: compare originalId sequences if available, else normalized stem hash
         val legacyIds = legacy.map { it.originalId }
         val newIds = new.map { it.originalId }
-        val idSequenceMatch = legacyIds == newIds
+        val allHaveIds = legacyIds.all { it != null } && newIds.all { it != null }
+        val idSequenceMatch = if (allHaveIds) {
+            legacyIds == newIds
+        } else {
+            // Fallback: normalized stem sequence comparison
+            val legacyStems = legacy.map { it.question.trim().replace("\\s+".toRegex(), " ") }
+            val newStems = new.map { it.question.trim().replace("\\s+".toRegex(), " ") }
+            legacyStems == newStems
+        }
 
         for (i in 0 until minOf(legacy.size, new.size)) {
             val l = legacy[i]; val n = new[i]

@@ -109,23 +109,30 @@ object QuestionAssembler {
 
     private fun resolveOwner(charOffset: Int, annotations: List<StructureAnnotation>): ImageOwner {
         if (charOffset < 0) return ImageOwner.Unbound
-        val matching = annotations.filter { charOffset >= it.startOffset && charOffset < it.endOffset }
-        return when {
-            matching.size == 1 -> when (matching[0].label) {
-                AnnotationLabel.STEM -> ImageOwner.Stem
-                AnnotationLabel.OPTION -> ImageOwner.Option(matching[0].optionKey ?: "?")
-                else -> ImageOwner.Unbound
-            }
-            // Zero-width image at annotation boundary: use the annotation that starts at this position
-            matching.isEmpty() -> {
-                val atBoundary = annotations.filter { it.startOffset == charOffset }
-                if (atBoundary.size == 1) when (atBoundary[0].label) {
-                    AnnotationLabel.STEM -> ImageOwner.Stem
-                    AnnotationLabel.OPTION -> ImageOwner.Option(atBoundary[0].optionKey ?: "?")
-                    else -> ImageOwner.Unbound
-                } else ImageOwner.Unbound
-            }
-            else -> ImageOwner.Unbound
-        }
+        val semantic = annotations.filter { it.label == AnnotationLabel.STEM || it.label == AnnotationLabel.OPTION }
+
+        // A. charOffset uniquely inside [start, end)
+        val inside = semantic.filter { charOffset >= it.startOffset && charOffset < it.endOffset }
+        if (inside.size == 1) return ownerFrom(inside[0])
+
+        // B. unique semantic annotation starts at this position
+        val atStart = semantic.filter { it.startOffset == charOffset }
+        if (atStart.size == 1) return ownerFrom(atStart[0])
+
+        // C. unique semantic annotation ends at this position (trailing image)
+        val atEnd = semantic.filter { it.endOffset == charOffset }
+        if (atEnd.size == 1) return ownerFrom(atEnd[0])
+
+        // D. sourceId has exactly one semantic owner → bind to it
+        val uniqueOwners = semantic.map { ownerFrom(it) }.toSet()
+        if (uniqueOwners.size == 1) return uniqueOwners.first()
+
+        return ImageOwner.Unbound
+    }
+
+    private fun ownerFrom(a: StructureAnnotation): ImageOwner = when (a.label) {
+        AnnotationLabel.STEM -> ImageOwner.Stem
+        AnnotationLabel.OPTION -> ImageOwner.Option(a.optionKey ?: "?")
+        else -> ImageOwner.Unbound
     }
 }
