@@ -85,8 +85,9 @@ object StructureLabelValidator {
                 optionKey = if (label == AnnotationLabel.OPTION) raw.optionKey?.uppercase()?.trim() else null,
             )
 
-            // Check overlap with existing annotations
-            val overlapping = existingAnnotations.filter { it.sourceId == ann.sourceId }.any {
+            // Check overlap with existing annotations AND already-accepted from this batch
+            val allExisting = existingAnnotations + accepted
+            val overlapping = allExisting.filter { it.sourceId == ann.sourceId }.any {
                 rangesOverlap(it.startOffset, it.endOffset, ann.startOffset, ann.endOffset)
             }
             if (overlapping) {

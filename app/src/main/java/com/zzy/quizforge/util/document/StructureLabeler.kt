@@ -1,185 +1,149 @@
 package com.zzy.quizforge.util.document
 
-/**
- * Deterministic StructureLabeler.
- *
- * Labels each source block within a QuestionSegment with STEM / OPTION / ANSWER / EXPLANATION
- * using exact character offsets on SourceProjection.text.
- *
- * Never copies question text. Annotations reference sourceId + offset range only.
- */
 object StructureLabeler {
 
-    /**
-     * Label a single QuestionSegment deterministically.
-     *
-     * @param segment the segment to label
-     * @param document the full StructuredDocument (for block lookup)
-     * @return SegmentLabelingResult with status and annotations
-     */
     fun label(segment: QuestionSegment, document: StructuredDocument): SegmentLabelingResult {
         val warnings = mutableListOf<String>()
-        val annotations = mutableListOf<StructureAnnotation>()
+        val allAnnotations = mutableListOf<StructureAnnotation>()
         val projections = mutableMapOf<String, SourceProjection>()
-
         val blockMap = document.blocks.associateBy { it.sourceId }
 
         for (sourceId in segment.sourceIds) {
             val block = blockMap[sourceId] ?: continue
             val proj = SourceProjection.from(block)
             projections[sourceId] = proj
-            if (proj.text.isBlank() && block is ParagraphBlock && block.content.any { it is ImageContent }) {
-                // Image-only paragraph — keep as OTHER for now
-                continue
-            }
-
-            val blockAnnotations = labelBlock(proj, block, warnings)
-            annotations += blockAnnotations
+            if (proj.text.isBlank() && block is ParagraphBlock && block.content.any { it is ImageContent }) continue
+            allAnnotations += labelBlock(proj, block, warnings)
         }
 
-        val status = when {
-            hasOptions(annotations) && hasAnswerOrExplanation(annotations) && hasStem(annotations, projections) ->
-                LabelingStatus.COMPLETE
-            hasOptions(annotations) && hasAnswerOrExplanation(annotations) ->
-                LabelingStatus.COMPLETE // implicit stem from option-block leading text
-            hasOptions(annotations) ->
-                LabelingStatus.AMBIGUOUS // no answer found
-            else ->
-                LabelingStatus.REJECTED
-        }
-
-        return SegmentLabelingResult(segment.segmentId, status, annotations, projections, warnings)
+        val status = computeStatus(allAnnotations, projections)
+        return SegmentLabelingResult(segment.segmentId, status, allAnnotations.toList(), projections, warnings)
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Block-level labeling
-    // ═══════════════════════════════════════════════════════════
-
-    private fun labelBlock(
-        proj: SourceProjection,
-        block: DocumentBlock,
-        warnings: MutableList<String>,
+    fun chosenAnnotations(
+        status: LabelingStatus,
+        deterministic: SegmentLabelingResult,
+        aiAnnotations: List<StructureAnnotation>?,
     ): List<StructureAnnotation> {
-        if (block !is ParagraphBlock) return emptyList()
-        val text = proj.text
-        val sourceId = proj.sourceId
-        val order = proj.sourceOrder
+        return when (status) {
+            LabelingStatus.COMPLETE -> deterministic.annotations
+            LabelingStatus.AMBIGUOUS -> {
+                if (aiAnnotations != null && aiAnnotations.isNotEmpty()) {
+                    val locked = deterministic.annotations.filter { it.label == AnnotationLabel.ANSWER || it.label == AnnotationLabel.EXPLANATION }
+                    locked + aiAnnotations
+                } else deterministic.annotations
+            }
+            LabelingStatus.REJECTED -> emptyList()
+        }
+    }
 
-        // 1. Answer marker detection
-        val answerMatch = answerRegex.find(text)
-        if (answerMatch != null) {
-            val markerEnd = answerMatch.range.last + 1
-            val contentStart = if (markerEnd < text.length && text[markerEnd] in ":：") markerEnd + 1 else markerEnd
-            val remainder = text.substring(contentStart).trim()
+    // ═══════════════════════════════════════════════
+    // Block labeling
+    // ═══════════════════════════════════════════════
+
+    private fun labelBlock(proj: SourceProjection, block: DocumentBlock, warnings: MutableList<String>): List<StructureAnnotation> {
+        if (block !is ParagraphBlock) return emptyList()
+        val text = proj.text; val sid = proj.sourceId; val ord = proj.sourceOrder
+
+        val ansMatch = answerRegex.find(text)
+        if (ansMatch != null) {
+            val contentStart = text.indexOf(ansMatch.value)
+            val markerEnd = contentStart + ansMatch.value.length
+            val remainder = text.substring(markerEnd).trimStart(':').trimStart('：').trim()
             if (remainder.isNotEmpty()) {
-                return listOf(
-                    StructureAnnotation(sourceId, order, AnnotationLabel.ANSWER, contentStart, text.length)
-                )
+                val offset = text.length - remainder.length
+                return listOf(StructureAnnotation(sid, ord, AnnotationLabel.ANSWER, offset, text.length))
             }
         }
 
-        // 2. Explanation marker detection
         val explMatch = explRegex.find(text)
         if (explMatch != null) {
-            val contentStart = explMatch.range.last + 1
-            val remainder = text.substring(contentStart).trimStart(':').trimStart('：').trim()
-            val offset = text.length - remainder.length
-            return if (remainder.isNotEmpty())
-                listOf(StructureAnnotation(sourceId, order, AnnotationLabel.EXPLANATION, offset, text.length))
-            else emptyList()
+            val contentStart = text.indexOf(explMatch.value)
+            val markerEnd = contentStart + explMatch.value.length
+            val remainder = text.substring(markerEnd).trimStart(':').trimStart('：').trim()
+            if (remainder.isNotEmpty()) {
+                val offset = text.length - remainder.length
+                return listOf(StructureAnnotation(sid, ord, AnnotationLabel.EXPLANATION, offset, text.length))
+            }
         }
 
-        // 3. Question number detection
         val qNumMatch = questionNumberRegex.find(text)
         val stemStart = if (qNumMatch != null) qNumMatch.range.last + 1 else 0
 
-        // 4. Option marker detection
         val optionMarkers = findOptionSpans(text)
         if (optionMarkers.isNotEmpty()) {
             val result = mutableListOf<StructureAnnotation>()
+            val preOptionText = text.substring(0, optionMarkers.first().markerStart).trim()
+            val isBare = preOptionText.matches(Regex("""^[A-Ha-h]\s*[\.\．、:：\)）]?\s*$"""))
 
-            // Only add STEM if there is meaningful text before the first option marker.
-            // Exclude blocks that are just a bare option marker (e.g., "A. TCP" → no stem).
-            val preOptionText = text.substring(0, optionMarkers.first().contentStart).trim()
-            val isBareOption = preOptionText.matches(Regex("""^[A-Ha-h]\s*[\.\．、:：\)）]?\s*$"""))
-            val hasStemPrefix = preOptionText.isNotBlank() && !isBareOption && preOptionText.length > 2
-
-            if (stemStart < optionMarkers.first().contentStart && hasStemPrefix) {
-                result += StructureAnnotation(
-                    sourceId, order, AnnotationLabel.STEM,
-                    stemStart, optionMarkers.first().contentStart
-                )
+            if (stemStart < optionMarkers.first().markerStart && preOptionText.isNotBlank() && !isBare) {
+                result += StructureAnnotation(sid, ord, AnnotationLabel.STEM, stemStart, optionMarkers.first().markerStart)
             }
 
-            // Add OPTION annotations
             for ((j, om) in optionMarkers.withIndex()) {
-                val endOffset = if (j + 1 < optionMarkers.size) optionMarkers[j + 1].contentStart else text.length
-                val optText = text.substring(om.contentStart, endOffset.coerceAtMost(text.length)).trim()
-                if (optText.isBlank()) continue
-                result += StructureAnnotation(
-                    sourceId, order, AnnotationLabel.OPTION,
-                    om.contentStart, endOffset.coerceAtMost(text.length),
-                    optionKey = om.key
-                )
+                val endOffset = if (j + 1 < optionMarkers.size) optionMarkers[j + 1].markerStart else text.length
+                val fullText = text.substring(om.contentStart, endOffset.coerceAtMost(text.length))
+                // Trim trailing whitespace from annotation range
+                val trimmedEnd = om.contentStart + fullText.trimEnd().length
+                if (trimmedEnd <= om.contentStart) continue
+                result += StructureAnnotation(sid, ord, AnnotationLabel.OPTION, om.contentStart, trimmedEnd, om.key)
             }
             return result
         }
 
-        // 5. No markers — treat entire block as STEM (if non-blank), skipping question number prefix
         if (text.isNotBlank()) {
-            return listOf(
-                StructureAnnotation(sourceId, order, AnnotationLabel.STEM, stemStart, text.length)
-            )
+            return listOf(StructureAnnotation(sid, ord, AnnotationLabel.STEM, stemStart, text.length))
         }
-
         return emptyList()
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Option span detection
-    // ═══════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════
+    // Option spans — markerStart + markerEnd + contentStart
+    // ═══════════════════════════════════════════════
 
-    private data class OptionSpan(val key: String, val contentStart: Int, val markerEnd: Int)
+    private data class OptionSpan(val key: String, val markerStart: Int, val markerEnd: Int, val contentStart: Int)
 
     private fun findOptionSpans(text: String): List<OptionSpan> {
         val spans = mutableListOf<OptionSpan>()
-        val markerRegex = Regex("""([A-Ha-h])\s*[\.\．、:：\)）]\s*""")
-        for (match in markerRegex.findAll(text)) {
-            val key = match.groupValues[1].uppercase()
-            val markerEnd = match.range.last + 1
-            val contentStart = markerEnd
-            spans += OptionSpan(key, contentStart, markerEnd)
+        val r = Regex("""([A-Ha-h])\s*[\.\．、:：\)）]\s*""")
+        for (m in r.findAll(text)) {
+            val key = m.groupValues[1].uppercase()
+            spans += OptionSpan(key, m.range.first, m.range.last + 1, m.range.last + 1)
         }
-        // Single leading option marker is sufficient (e.g., "A. TCP" in its own paragraph)
-        if (spans.size == 1 && spans[0].markerEnd <= 4) return spans
-        // Multiple markers always recognized
+        if (spans.size == 1 && spans[0].markerStart <= 4) return spans
         if (spans.size >= 2) return spans
         return emptyList()
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Completeness checks
-    // ═══════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════
+    // Completeness
+    // ═══════════════════════════════════════════════
 
-    private fun hasOptions(annotations: List<StructureAnnotation>): Boolean =
-        annotations.any { it.label == AnnotationLabel.OPTION }
-
-    private fun hasAnswerOrExplanation(annotations: List<StructureAnnotation>): Boolean =
-        annotations.any { it.label == AnnotationLabel.ANSWER || it.label == AnnotationLabel.EXPLANATION }
-
-    private fun hasStem(annotations: List<StructureAnnotation>, projections: Map<String, SourceProjection>): Boolean {
-        val stemAnn = annotations.filter { it.label == AnnotationLabel.STEM }
-        return stemAnn.any { a ->
-            val proj = projections[a.sourceId] ?: return@any false
-            proj.substring(a.startOffset, a.endOffset).isNotBlank()
+    private fun computeStatus(annotations: List<StructureAnnotation>, projections: Map<String, SourceProjection>): LabelingStatus {
+        val hasOpt = annotations.any { it.label == AnnotationLabel.OPTION }
+        val optKeys = annotations.filter { it.label == AnnotationLabel.OPTION }.map { it.optionKey }.filterNotNull()
+        val hasDupKeys = optKeys.size != optKeys.toSet().size
+        val hasAns = annotations.any { it.label == AnnotationLabel.ANSWER }
+        val ansNonEmpty = annotations.filter { it.label == AnnotationLabel.ANSWER }.any { a ->
+            (projections[a.sourceId]?.substring(a.startOffset, a.endOffset) ?: "").isNotBlank()
         }
+        val hasStemNonEmpty = annotations.filter { it.label == AnnotationLabel.STEM }.any { a ->
+            (projections[a.sourceId]?.substring(a.startOffset, a.endOffset) ?: "").isNotBlank()
+        }
+
+        if (!hasOpt) return LabelingStatus.REJECTED
+        if (optKeys.toSet().size < 2) return LabelingStatus.AMBIGUOUS
+        if (hasDupKeys) return LabelingStatus.AMBIGUOUS
+        if (!hasAns || !ansNonEmpty) return LabelingStatus.AMBIGUOUS
+        if (!hasStemNonEmpty) return LabelingStatus.AMBIGUOUS
+        return LabelingStatus.COMPLETE
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // Regex constants
-    // ═══════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════
+    // Regex
+    // ═══════════════════════════════════════════════
 
-    private val answerRegex = Regex("""^\s*(答案|正确答案|参考答案|标准答案)\s*[:：]?""")
-    private val explRegex = Regex("""^\s*(解析|解释|题解)\s*[:：]?""")
+    private val answerRegex = Regex("""(答案|正确答案|参考答案|标准答案)\s*[:：]""")
+    private val explRegex = Regex("""(解析|解释|题解)\s*[:：]""")
     private val questionNumberRegex = Regex("""^\s*(?:第\s*)?\d{1,4}\s*(?:[\.\．、\)）]|题)\s*""")
 }
