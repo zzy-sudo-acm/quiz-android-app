@@ -71,17 +71,14 @@ object QuestionSegmenter {
             inQuestion = false
         }
 
-        fun bindPendingStem(): Boolean {
-            // Bind the most recent neutral ParagraphBlock as stem candidate
-            val stemIdx = pendingNeutral.indexOfLast { it is ParagraphBlock }
-            if (stemIdx < 0) return false
-            val stem = pendingNeutral.removeAt(stemIdx)
-            // Flush all preceding neutral blocks to unassigned
-            flushPendingToUnassigned()
-            currentSourceIds += stem.sourceId
-            currentSourceOrders += stem.sourceOrder
-            consumed += stem.sourceOrder
-            classifyBlockSignals(stem, signals, currentSignals)
+        fun isStemCandidate(block: DocumentBlock): Boolean {
+            if (block !is ParagraphBlock) return false
+            if (block.content.isEmpty()) return false
+            val text = extractParagraphText(block)
+            if (text.isBlank()) return false
+            if (detectAnswerMarker(block)) return false
+            if (detectExplanationMarker(block)) return false
+            if (detectOptionMarkers(block).isNotEmpty()) return false
             return true
         }
 
@@ -122,8 +119,8 @@ object QuestionSegmenter {
                 if (hasOption) {
                     // Implicit question start via option markers
                     inQuestion = true
-                    // Try to bind the most recent pending neutral ParagraphBlock as stem
-                    val stemIdx = pendingNeutral.indexOfLast { it is ParagraphBlock }
+                    // Try to bind the most recent pending stem candidate
+                    val stemIdx = pendingNeutral.indexOfLast(::isStemCandidate)
                     if (stemIdx >= 0) {
                         val stem = pendingNeutral.removeAt(stemIdx)
                         // Flush all remaining pending (before the stem) to unassigned
