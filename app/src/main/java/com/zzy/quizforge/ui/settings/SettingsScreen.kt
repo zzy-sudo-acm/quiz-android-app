@@ -79,7 +79,7 @@ fun SettingsScreen(
             SurfaceCard {
                 Text("DeepSeek API Key", fontWeight = FontWeight.Bold)
                 Text(
-                    "本地解析失败的题目会自动交给 DeepSeek 修复格式。不配置也能用，本地解析通常已能识别 90% 以上的原题。",
+                    "本地解析失败的题目片段会自动交给 DeepSeek 修复格式；\n兼容性验证模式下歧义题目片段也会调用 DeepSeek 辅助识别。\n不配置也能使用，但上述 AI 辅助功能将不可用。",
                     color = TextMuted,
                     modifier = Modifier.padding(top = 6.dp),
                     style = MaterialTheme.typography.bodySmall,
@@ -129,9 +129,9 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 6.dp),
                 )
                 StepRow("1", "打开 platform.deepseek.com，手机号注册并实名")
-                StepRow("2", "在「充值」页面充值，最低 1 元起，支持微信/支付宝")
-                StepRow("3", "进入「API Keys」页面，点「创建 API Key」")
-                StepRow("4", "复制 sk- 开头的字符串，粘贴到上方输入框")
+                StepRow("2", "登录 DeepSeek 开放平台，按平台当前流程开通 API 服务并创建 API Key")
+                StepRow("3", "复制 sk- 开头的字符串，粘贴到上方输入框")
+                StepRow("4", "API 费用以 DeepSeek 当前公开计费规则为准")
 
                 Text(
                     "费用说明",

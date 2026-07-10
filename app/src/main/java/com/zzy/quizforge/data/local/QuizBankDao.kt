@@ -24,7 +24,7 @@ interface QuizBankDao {
         ORDER BY COALESCE(b.lastPracticedAt, b.updatedAt) DESC
         """,
     )
-    fun observeSummaries(sequentialMode: String = "sequential"): Flow<List<QuizBankSummaryRow>>
+    fun observeSummaries(sequentialMode: String): Flow<List<QuizBankSummaryRow>>
 
     @Query("SELECT COUNT(*) FROM quiz_banks")
     suspend fun countBanks(): Int

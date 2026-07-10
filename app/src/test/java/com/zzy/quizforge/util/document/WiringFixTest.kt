@@ -1,11 +1,14 @@
 package com.zzy.quizforge.util.document
 
 import com.zzy.quizforge.domain.model.QuestionType
+import com.zzy.quizforge.ui.home.QuizBankSummaryUi
 import org.junit.Assert.*
 import org.junit.Test
 import org.xmlpull.v1.XmlPullParser
 import java.io.File
 import java.io.Reader
+
+private fun ui(seqIdx: Int?, count: Int) = QuizBankSummaryUi(1L, "T", count, 0, 0, 0, null, seqIdx)
 
 class WiringFixTest {
     private val testFactory: (Reader) -> XmlPullParser = { r -> TestXmlPullParser(r) }
@@ -213,6 +216,33 @@ class WiringFixTest {
     // ═══════════════════════════════
     // ShadowComparator null-id fallback
     // ═══════════════════════════════
+    // ═══════════════════════════════
+    // Sequential action text
+    // ═══════════════════════════════
+    @Test fun `sequentialActionText null index returns ShunXu`() {
+        val ui = ui(seqIdx = null, count = 100)
+        assertEquals("顺序", ui.sequentialActionText)
+    }
+    @Test fun `sequentialActionText zero index returns ShunXu`() {
+        assertEquals("顺序", ui(seqIdx = 0, count = 100).sequentialActionText)
+    }
+    @Test fun `sequentialActionText mid index returns continue`() {
+        assertEquals("继续 58/100", ui(seqIdx = 57, count = 100).sequentialActionText)
+    }
+    @Test fun `sequentialActionText past end clamps`() {
+        assertEquals("继续 100/100", ui(seqIdx = 999, count = 100).sequentialActionText)
+    }
+
+    // ═══════════════════════════════
+    // ImportRuntimeConfig
+    // ═══════════════════════════════
+    @Test fun `ImportRuntimeConfig currentStrategy is SHADOW`() {
+        assertEquals(ImportStrategy.SHADOW, ImportRuntimeConfig.currentStrategy)
+    }
+    @Test fun `ImportRuntimeConfig displayName is SHADOW`() {
+        assertEquals("SHADOW", ImportRuntimeConfig.displayName)
+    }
+
     @Test fun `ShadowComparator null originalId reversed sequence`() {
         val lq = listOf(
             com.zzy.quizforge.domain.model.QuizQuestion(originalId = null, type = QuestionType.SINGLE, question = "Q1", options = emptyList(), answer = listOf("A")),
