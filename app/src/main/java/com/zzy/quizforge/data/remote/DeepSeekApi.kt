@@ -16,6 +16,18 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
+data class DeepSeekUsage(
+    val promptTokens: Long?,
+    val completionTokens: Long?,
+    val totalTokens: Long?,
+)
+
+data class DeepSeekCompletion(
+    val content: String,
+    val finishReason: String?,
+    val usage: DeepSeekUsage?,
+)
+
 class DeepSeekApi(
     private val streamingClient: OkHttpClient,
     private val repairClient: OkHttpClient,
@@ -46,6 +58,7 @@ class DeepSeekApi(
             mapOf(
                 "model" to DEFAULT_MODEL,
                 "stream" to true,
+                "thinking" to mapOf("type" to "disabled"),
                 "temperature" to 0.2,
                 "max_tokens" to 65536,
                 "messages" to listOf(
@@ -95,6 +108,7 @@ class DeepSeekApi(
                 mapOf(
                     "model" to DEFAULT_MODEL,
                     "stream" to false,
+                    "thinking" to mapOf("type" to "disabled"),
                     "temperature" to 0.0,
                     "max_tokens" to 2048,
                     "messages" to listOf(
@@ -112,7 +126,7 @@ class DeepSeekApi(
                 .post(body)
                 .build()
 
-            executeWithRetry(request)
+            executeWithRetry(request).content
         }
 
     /**
@@ -121,7 +135,7 @@ class DeepSeekApi(
      * The import report's apiRequestCount is the number of logical model request batches;
      * transport retries performed here are intentionally not counted as additional batches.
      */
-    private suspend fun executeWithRetry(request: Request): String {
+    private suspend fun executeWithRetry(request: Request): DeepSeekCompletion {
         var lastException: IOException? = null
 
         for (attempt in 0..MAX_REPAIR_RETRIES) {
@@ -129,17 +143,34 @@ class DeepSeekApi(
                 repairClient.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         val raw = response.body?.string().orEmpty()
-                        val content = runCatching {
+                        val completion = runCatching {
                             val root = JsonParser.parseString(raw).asJsonObject
-                            root.getAsJsonArray("choices")
+                            val choice = root.getAsJsonArray("choices")
                                 ?.firstOrNull()
                                 ?.asJsonObject
+                            val content = choice
                                 ?.getAsJsonObject("message")
                                 ?.get("content")
                                 ?.asString
                                 .orEmpty()
-                        }.getOrDefault("")
-                        return content
+                            val usageObject = root.get("usage")
+                                ?.takeIf { it.isJsonObject }
+                                ?.asJsonObject
+                            DeepSeekCompletion(
+                                content = content,
+                                finishReason = choice?.get("finish_reason")
+                                    ?.takeUnless { it.isJsonNull }
+                                    ?.asString,
+                                usage = usageObject?.let { usage ->
+                                    DeepSeekUsage(
+                                        promptTokens = usage.longOrNull("prompt_tokens"),
+                                        completionTokens = usage.longOrNull("completion_tokens"),
+                                        totalTokens = usage.longOrNull("total_tokens"),
+                                    )
+                                },
+                            )
+                        }.getOrDefault(DeepSeekCompletion("", null, null))
+                        return completion
                     }
 
                     throw HttpStatusException(response.code)
@@ -166,6 +197,9 @@ class DeepSeekApi(
 
     private fun isRetryable(httpCode: Int): Boolean =
         httpCode == 429 || httpCode in 500..599
+
+    private fun com.google.gson.JsonObject.longOrNull(name: String): Long? =
+        get(name)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong
 
     private class HttpStatusException(
         val code: Int,
@@ -242,6 +276,8 @@ class DeepSeekApi(
                 mapOf(
                     "model" to DEFAULT_MODEL,
                     "stream" to false,
+                    "thinking" to mapOf("type" to "disabled"),
+                    "response_format" to mapOf("type" to "json_object"),
                     "temperature" to 0.0,
                     "max_tokens" to 4096,
                     "messages" to listOf(
@@ -256,7 +292,7 @@ class DeepSeekApi(
                 .post(body)
                 .build()
 
-            executeWithRetry(request)
+            executeWithRetry(request).content
         }
 
     /**
@@ -268,7 +304,7 @@ class DeepSeekApi(
         stage: SmartRecognitionStage,
         requestJson: String,
         model: String = DEFAULT_MODEL,
-    ): String = withContext(Dispatchers.IO) {
+    ): DeepSeekCompletion = withContext(Dispatchers.IO) {
         val prompt = if (stage == SmartRecognitionStage.BOUNDARY) {
             buildBoundaryPrompt(requestJson)
         } else {
@@ -278,6 +314,8 @@ class DeepSeekApi(
             mapOf(
                 "model" to model,
                 "stream" to false,
+                "thinking" to mapOf("type" to "disabled"),
+                "response_format" to mapOf("type" to "json_object"),
                 "temperature" to 0.0,
                 "max_tokens" to 8192,
                 "messages" to listOf(mapOf("role" to "user", "content" to prompt)),
@@ -297,6 +335,7 @@ class DeepSeekApi(
             mapOf(
                 "model" to model,
                 "stream" to false,
+                "thinking" to mapOf("type" to "disabled"),
                 "temperature" to 0.0,
                 "max_tokens" to 2,
                 "messages" to listOf(mapOf("role" to "user", "content" to "只回复 OK")),
@@ -307,31 +346,20 @@ class DeepSeekApi(
             .header("Authorization", "Bearer $apiKey")
             .post(body)
             .build()
-        executeWithRetry(request)
+        executeWithRetry(request).content
     }
 
     private fun buildBoundaryPrompt(requestJson: String): String = """
 你是 QuizForge 的 Word 题库边界识别器。输入是按原文顺序排列的 SourceBlock JSON；它包含段落、表格单元格坐标、Word 自动编号、图片占位和字符范围。图片二进制没有发送，禁止猜图片内容。
 
-任务：识别本批次中所有题目边界、集中答案区、非题目内容和无法确认内容。一个 source block 可以包含多道题，questions 必须允许返回多个对象。不要改写、润色或补写任何原文。
+任务：只识别本批次中所有题目边界、集中答案区、非题目内容和无法确认内容。一个 source block 可以包含多道题，questions 必须允许返回多个对象。不要改写、润色或补写任何原文。
 
 只返回严格 JSON：
 {
   "questions": [{
     "tempId": "q1",
     "sourceIds": ["p1", "p2"],
-    "originalQuestionNumber": 1,
-    "type": "single|multiple|truefalse（仅在完全确定时提供）",
-    "question": "原文题干（仅在完全确定时提供）",
-    "options": [{"key":"A","text":"原文选项"}],
-    "answer": ["A"],
-    "explanation": null,
-    "knowledge": null,
-    "questionSource": ["p1"],
-    "optionSources": {"A":["p2"]},
-    "answerSource": ["p3"],
-    "explanationSource": [],
-    "knowledgeSource": []
+    "originalQuestionNumber": 1
   }],
   "answerSections": [{"sourceIds":["p100"]}],
   "nonQuestionSourceIds": ["p0"],
@@ -339,7 +367,7 @@ class DeepSeekApi(
   "unresolvedSourceIds": []
 }
 
-只有字段完整且逐字来自 sourceIds 时才在第一阶段附带 type/question/options/answer；否则只返回边界，QuizForge 会进行第二阶段。不得根据常识猜答案，不得生成原文没有的选项。
+第一阶段禁止返回 type、question、options、answer、explanation、knowledge 或字段来源；QuizForge 会在第二阶段逐题结构化。不得根据常识猜答案，不得生成原文没有的选项。
 
 输入：
 $requestJson

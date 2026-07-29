@@ -8,6 +8,7 @@ QuizForge 是一个本地优先的 Android 刷题应用，可从 Word（`.docx`�
 
 - 完全离线，不读取 API Key，也不会产生模型费用。
 - 按确定性规则解析题号、题干、选项、答案、题型、解析、知识点和图片。
+- 支持 `[判断题|单选题|多选题][难度][用途]` 组头，以及题干末尾或独占一段的括号答案。
 - 适合按 QuizForge 格式整理的新题库；格式不合规的内容会进入导入报告，不会静默丢失。
 - App 内可查看格式说明并保存真正的 Word 模板；仓库模板位于 [`app/src/main/assets/quizforge-standard-template.docx`](app/src/main/assets/quizforge-standard-template.docx)。
 
@@ -31,6 +32,7 @@ D. 选项四
 - 选择文件时只在本机提取结构；必须由用户再次确认后才会调用 DeepSeek API。
 - 模型获得的是分段后的题库文字及必要结构信息，不包含原始 DOCX 二进制或图片二进制。
 - 每个模型结果都要经过来源校验、答案与选项校验、重复题检测；无法确认的内容保留在报告中。
+- 已知本地格式会直接离线识别；模型请求使用 JSON 输出，检测到截断后会缩小原文范围重试。
 - 需要用户自己的 API Key，费用由用户的 DeepSeek 账户承担。
 
 ```mermaid

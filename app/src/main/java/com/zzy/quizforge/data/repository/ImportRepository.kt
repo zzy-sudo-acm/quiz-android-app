@@ -43,7 +43,8 @@ class ImportRepository(
 
     /**
      * Reads a DOCX exactly once into an import task. Standard preflight is performed immediately
-     * and never reads the API key; smart preparation only extracts document structure.
+     * and never reads the API key. Smart preparation also accepts a fully verified local tagged
+     * format result; all other smart documents remain untouched until explicit API consent.
      */
     suspend fun prepareImport(uri: Uri, fileName: String, mode: ImportMode): PreparedImport =
         importMutex.withLock {
@@ -51,22 +52,25 @@ class ImportRepository(
             val tempDir = File(appContext.filesDir, "import-temp/$taskId")
             try {
                 withContext(Dispatchers.IO) {
-                check(tempDir.mkdirs() || tempDir.isDirectory) { "无法创建导入临时目录" }
-                val entries = DocxArchiveLoader.load(appContext.contentResolver, uri)
-                val document = documentReader.read(entries, File(tempDir, "images"))
-                val sources = SourceBlockExtractor.extract(document)
-                require(sources.any { it.isNonEmpty }) { "Word 文档没有可识别的非空内容" }
-                    val standard = if (mode == ImportMode.STANDARD) {
-                        val result = standardParser.parse(fileName, sources)
-                        val finalized = result.copy(
+                    check(tempDir.mkdirs() || tempDir.isDirectory) { "无法创建导入临时目录" }
+                    val entries = DocxArchiveLoader.load(appContext.contentResolver, uri)
+                    val document = documentReader.read(entries, File(tempDir, "images"))
+                    val sources = SourceBlockExtractor.extract(document)
+                    require(sources.any { it.isNonEmpty }) { "Word 文档没有可识别的非空内容" }
+                    val localResult = when (mode) {
+                        ImportMode.STANDARD -> standardParser.parse(fileName, sources)
+                        ImportMode.SMART -> standardParser.parseTaggedIfComplete(fileName, sources)
+                    }
+                    val preflight = localResult?.let { result ->
+                        result.copy(
                             report = result.report.copy(
+                                importMode = mode,
                                 warnings = (document.warnings.map { it.message } + result.report.warnings).distinct(),
                             ),
                         )
-                        quizRepository.saveImportReport(bankId = null, report = finalized.report)
-                        finalized
-                    } else null
-                PreparedImport(taskId, fileName, mode, tempDir, document, sources, standard)
+                    }
+                    preflight?.let { quizRepository.saveImportReport(bankId = null, report = it.report) }
+                    PreparedImport(taskId, fileName, mode, tempDir, document, sources, preflight)
                 }
             } catch (error: Throwable) {
                 withContext(NonCancellable + Dispatchers.IO) { tempDir.deleteRecursively() }
@@ -81,6 +85,7 @@ class ImportRepository(
     ): ImportRecognitionResult = importMutex.withLock {
         require(prepared.mode == ImportMode.SMART) { "当前任务不是智能识别模式" }
         require(prepared.tempDir.isDirectory) { "导入任务已取消或过期" }
+        prepared.standardPreflight?.let { return@withLock it }
         val key = settingsStore.getApiKey()
         val cache = smartCaches.getOrPut(prepared.taskId) { SmartRequestCache() }
         val result = SmartImportPipeline(smartClient, cache).recognize(

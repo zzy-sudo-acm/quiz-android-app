@@ -54,6 +54,18 @@ class ImportWorkflowContractTest {
     }
 
     @Test
+    fun `complete tagged documents use local preflight before reading an API key`() {
+        val repository = modulePath(
+            "src/main/java/com/zzy/quizforge/data/repository/ImportRepository.kt",
+        ).readText()
+        val prepare = repository.section("suspend fun prepareImport", "/** User-confirmed smart recognition")
+        val recognize = repository.section("suspend fun recognizeSmart", "suspend fun retrySmartRecord")
+
+        assertTrue(prepare.contains("parseTaggedIfComplete"))
+        assertTrue(recognize.indexOf("prepared.standardPreflight") < recognize.indexOf("getApiKey()"))
+    }
+
+    @Test
     fun `standard mode never reads the API key and settings store does not eagerly read it`() {
         val repository = modulePath(
             "src/main/java/com/zzy/quizforge/data/repository/ImportRepository.kt",

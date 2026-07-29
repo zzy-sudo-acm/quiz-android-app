@@ -294,6 +294,116 @@ class SmartImportPipelineTest {
     }
 
     @Test
+    fun `truncated boundary JSON is bisected and successful leaves are cached`() = runTest {
+        val requests = mutableListOf<SmartModelRequest>()
+        val client = SmartImportModelClient { _, request ->
+            requests += request
+            if (request.chunkId == "chunk-0") {
+                SmartModelCompletion("{\"questions\":[", finishReason = "length")
+            } else {
+                val ids = request.sourceBlocks.map { it.sourceId }.distinct()
+                    .joinToString(prefix = "[\"", postfix = "\"]", separator = "\",\"")
+                SmartModelCompletion(
+                    """{"questions":[],"nonQuestionSourceIds":$ids}""",
+                    finishReason = "stop",
+                )
+            }
+        }
+        val cache = SmartRequestCache()
+        val smart = pipeline(client, cache, overlapBlocks = 0)
+        val sources = listOf(source("left", 0, "1. 左侧内容"), source("right", 1, "2. 右侧内容"))
+
+        val first = smart.recognize("truncated.docx", sources, "key")
+        val second = smart.recognize("truncated.docx", sources, "key")
+
+        assertEquals(4, requests.size)
+        assertEquals(listOf("chunk-0", "chunk-0-a", "chunk-0-b", "chunk-0"), requests.map { it.chunkId })
+        assertEquals(3, first.report.apiRequestCount)
+        assertEquals(1, second.report.apiRequestCount)
+        assertEquals(2, first.report.nonQuestionCount)
+        assertEquals(0, first.report.rejectedQuestionCount)
+        assertTrue(first.report.ledgerComplete)
+        assertTrue(second.report.ledgerComplete)
+    }
+
+    @Test
+    fun `unclosed JSON without finish reason also triggers bounded split`() = runTest {
+        var calls = 0
+        val client = SmartImportModelClient { _, request ->
+            calls++
+            if (request.chunkId == "chunk-0") {
+                SmartModelCompletion("{\"questions\":[{\"tempId\":\"cut")
+            } else {
+                val id = request.sourceBlocks.single().sourceId
+                SmartModelCompletion("""{"questions":[],"nonQuestionSourceIds":["$id"]}""")
+            }
+        }
+
+        val result = pipeline(client, overlapBlocks = 0).recognize(
+            "eof.docx",
+            listOf(source("one", 0, "1. 第一段"), source("two", 1, "2. 第二段")),
+            "key",
+        )
+
+        assertEquals(3, calls)
+        assertEquals(2, result.report.nonQuestionCount)
+        assertEquals(0, result.report.rejectedQuestionCount)
+        assertTrue(result.report.ledgerComplete)
+    }
+
+    @Test
+    fun `incomplete coverage response is not cached`() = runTest {
+        var calls = 0
+        val client = RecordingSmartClient {
+            calls++
+            if (calls == 1) {
+                """{"questions":[]}"""
+            } else {
+                """{"questions":[],"nonQuestionSourceIds":["recoverable"]}"""
+            }
+        }
+        val smart = pipeline(client, SmartRequestCache())
+        val sources = listOf(source("recoverable", 0, "章节说明"))
+
+        val first = smart.recognize("coverage-cache.docx", sources, "key")
+        val second = smart.recognize("coverage-cache.docx", sources, "key")
+
+        assertSingleFailure(first, ImportFailureReason.SOURCE_NOT_COVERED)
+        assertEquals(2, calls)
+        assertEquals(1, second.report.nonQuestionCount)
+        assertEquals(0, second.report.rejectedQuestionCount)
+    }
+
+    @Test
+    fun `successful overlap classification clears an earlier transport failure`() = runTest {
+        val sources = listOf(
+            source("first", 0, "甲".repeat(60)),
+            source("overlap", 1, "乙".repeat(60)),
+            source("last", 2, "丙".repeat(60)),
+        )
+        var calls = 0
+        val client = RecordingSmartClient { request ->
+            calls++
+            if (calls == 1) {
+                throw IllegalStateException("temporary failure")
+            }
+            val ids = request.sourceBlocks.map { it.sourceId }.distinct()
+                .joinToString(prefix = "[\"", postfix = "\"]", separator = "\",\"")
+            """{"questions":[],"nonQuestionSourceIds":$ids}"""
+        }
+
+        val result = pipeline(client, maxEstimatedTokens = 250, overlapBlocks = 1)
+            .recognize("overlap-recovery.docx", sources, "key")
+
+        assertEquals(2, calls)
+        assertEquals(listOf("first"), result.report.records.filter {
+            it.status == SourceLedgerStatus.REJECTED_QUESTION
+        }.flatMap { it.sourceIds })
+        assertEquals(2, result.report.nonQuestionCount)
+        assertTrue(result.report.ledgerComplete)
+    }
+
+    @Test
     fun `invalid JSON never enters the shared request cache`() = runTest {
         var responseIndex = 0
         val original = source(
@@ -757,9 +867,9 @@ private class RecordingSmartClient(
     val apiKeys = mutableListOf<String>()
     val calls: Int get() = requests.size
 
-    override suspend fun complete(apiKey: String, request: SmartModelRequest): String {
+    override suspend fun complete(apiKey: String, request: SmartModelRequest): SmartModelCompletion {
         apiKeys += apiKey
         requests += request
-        return response(request)
+        return SmartModelCompletion(response(request))
     }
 }

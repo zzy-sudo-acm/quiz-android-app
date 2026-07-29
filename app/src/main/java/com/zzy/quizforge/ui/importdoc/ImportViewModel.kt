@@ -116,11 +116,13 @@ class ImportViewModel(
                         prepared = prepared,
                         recognition = result,
                         isReading = false,
-                        statusText = if (mode == ImportMode.STANDARD) {
-                            result!!.summaryText()
-                        } else {
-                            "已提取 ${prepared.sourceBlocks.count { source -> source.isNonEmpty }} 段、" +
-                                "${prepared.imageCount} 张图片、${prepared.tableCount} 个表格；确认后才会调用 API"
+                        statusText = when {
+                            mode == ImportMode.STANDARD -> result!!.summaryText()
+                            result != null -> result.summaryText() + "；已本地识别，未调用 API"
+                            else -> {
+                                "已提取 ${prepared.sourceBlocks.count { source -> source.isNonEmpty }} 段、" +
+                                    "${prepared.imageCount} 张图片、${prepared.tableCount} 个表格；确认后才会调用 API"
+                            }
                         },
                     )
                 }

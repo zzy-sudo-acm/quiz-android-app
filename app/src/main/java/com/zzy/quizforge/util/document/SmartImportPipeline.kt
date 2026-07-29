@@ -35,9 +35,21 @@ data class SmartModelRequest(
     val answerSectionSourceIds: List<String> = emptyList(),
 )
 
+data class SmartModelUsage(
+    val promptTokens: Long? = null,
+    val completionTokens: Long? = null,
+    val totalTokens: Long? = null,
+)
+
+data class SmartModelCompletion(
+    val content: String,
+    val finishReason: String? = null,
+    val usage: SmartModelUsage? = null,
+)
+
 /** Provider-neutral interface; no model name or endpoint leaks into the pipeline. */
 fun interface SmartImportModelClient {
-    suspend fun complete(apiKey: String, request: SmartModelRequest): String
+    suspend fun complete(apiKey: String, request: SmartModelRequest): SmartModelCompletion
 }
 
 class SmartRequestCache {
@@ -144,77 +156,94 @@ class SmartImportPipeline(
                 chunkId = chunk.id,
                 sourceBlocks = chunk.slices,
             )
-            val response = call(request, apiKey) { requestCount++ }
-            when (response) {
-                is ModelCall.Failed -> chunk.sourceIds.forEach { sourceId ->
-                    failures.putIfAbsent(sourceId, Failure(ImportFailureReason.API_REQUEST_FAILED, response.message, true))
-                }
-                is ModelCall.Null -> chunk.sourceIds.forEach { sourceId ->
-                    failures.putIfAbsent(sourceId, Failure(ImportFailureReason.API_RETURNED_NULL, "模型返回 null", true))
-                }
-                is ModelCall.Success -> {
-                    val parsed = SmartResponseParser.parse(response.raw)
-                    val scopeError = if (parsed.error == null) {
-                        responseScopeError(parsed, chunk.sourceIds.toSet())
-                    } else null
-                    if (parsed.error != null) {
-                        chunk.sourceIds.forEach { sourceId ->
-                            failures.putIfAbsent(sourceId, Failure(ImportFailureReason.API_INVALID_JSON, parsed.error, true))
-                        }
-                    } else if (scopeError != null) {
-                        chunk.sourceIds.forEach { sourceId ->
-                            failures.putIfAbsent(
-                                sourceId,
-                                Failure(ImportFailureReason.SOURCE_NOT_COVERED, scopeError, true),
-                            )
-                        }
-                    } else {
-                        parsed.nonQuestionSourceIds.filter(sourceById::containsKey).forEach { sourceId ->
-                            ledger.mark(listOf(sourceId), SourceLedgerStatus.NON_QUESTION_CONTENT)
-                            records += ImportReportRecord(
-                                sourceIds = listOf(sourceId),
-                                originalQuestionNumber = null,
-                                rawText = sourceById.getValue(sourceId).rawText,
-                                status = SourceLedgerStatus.NON_QUESTION_CONTENT,
-                                reasonMessage = "模型明确标记为标题、章节或非题目内容",
-                                apiAttempted = true,
-                            )
-                        }
-                        parsed.unsupportedSourceIds.filter(sourceById::containsKey).forEach { sourceId ->
-                            ledger.mark(listOf(sourceId), SourceLedgerStatus.UNSUPPORTED_CONTENT)
-                            records += ImportReportRecord(
-                                sourceIds = listOf(sourceId),
-                                originalQuestionNumber = null,
-                                rawText = sourceById.getValue(sourceId).rawText,
-                                status = SourceLedgerStatus.UNSUPPORTED_CONTENT,
-                                reasonCode = ImportFailureReason.SOURCE_NOT_COVERED,
-                                reasonMessage = "模型确认该 Word 结构暂不支持",
-                                apiAttempted = true,
-                            )
-                        }
-                        parsed.answerSectionSourceIds.filter(sourceById::containsKey).forEach { sourceId ->
-                            if (answerSectionIds.add(sourceId) && ledger.status(sourceId) == null) {
+            val scopedResponses = callBoundaryAdaptive(request, apiKey) { requestCount++ }
+            scopedResponses.forEach { scoped ->
+                val response = scoped.call
+                val responseSourceIds = scoped.request.sourceBlocks.map { it.sourceId }.distinct()
+                when (response) {
+                    is ModelCall.Failed -> responseSourceIds.forEach { sourceId ->
+                        failures.putIfAbsent(sourceId, Failure(ImportFailureReason.API_REQUEST_FAILED, response.message, true))
+                    }
+                    is ModelCall.Truncated -> responseSourceIds.forEach { sourceId ->
+                        failures.putIfAbsent(
+                            sourceId,
+                            Failure(ImportFailureReason.API_RESPONSE_TRUNCATED, response.message, true),
+                        )
+                    }
+                    is ModelCall.Null -> responseSourceIds.forEach { sourceId ->
+                        failures.putIfAbsent(sourceId, Failure(ImportFailureReason.API_RETURNED_NULL, "模型返回 null", true))
+                    }
+                    is ModelCall.Success -> {
+                        val parsed = SmartResponseParser.parse(response.raw)
+                        val scopeError = if (parsed.error == null) {
+                            responseScopeError(parsed, responseSourceIds.toSet())
+                        } else null
+                        if (parsed.error != null) {
+                            responseSourceIds.forEach { sourceId ->
+                                failures.putIfAbsent(sourceId, Failure(ImportFailureReason.API_INVALID_JSON, parsed.error, true))
+                            }
+                        } else if (scopeError != null) {
+                            responseSourceIds.forEach { sourceId ->
+                                failures.putIfAbsent(
+                                    sourceId,
+                                    Failure(ImportFailureReason.SOURCE_NOT_COVERED, scopeError, true),
+                                )
+                            }
+                        } else {
+                            val unresolvedIds = parsed.unresolvedSourceIds.toSet()
+                            (classifiedSourceIds(parsed) - unresolvedIds).forEach(failures::remove)
+                            parsed.nonQuestionSourceIds.filter(sourceById::containsKey).forEach { sourceId ->
+                                if (ledger.status(sourceId) != null) return@forEach
                                 ledger.mark(listOf(sourceId), SourceLedgerStatus.NON_QUESTION_CONTENT)
                                 records += ImportReportRecord(
                                     sourceIds = listOf(sourceId),
                                     originalQuestionNumber = null,
                                     rawText = sourceById.getValue(sourceId).rawText,
                                     status = SourceLedgerStatus.NON_QUESTION_CONTENT,
-                                    reasonMessage = "模型识别为集中答案区",
+                                    reasonMessage = "模型明确标记为标题、章节或非题目内容",
                                     apiAttempted = true,
                                 )
                             }
-                        }
-                        parsed.questions.forEach { candidate ->
-                            val key = candidate.identityKey()
-                            val existing = pending[key]
-                            pending[key] = if (existing == null) candidate else existing.merge(candidate)
-                        }
-                        parsed.unresolvedSourceIds.forEach { sourceId ->
-                            if (sourceId in sourceById) failures.putIfAbsent(
-                                sourceId,
-                                Failure(ImportFailureReason.SOURCE_NOT_COVERED, "模型无法确认该原文的题目归属", true),
-                            )
+                            parsed.unsupportedSourceIds.filter(sourceById::containsKey).forEach { sourceId ->
+                                if (ledger.status(sourceId) != null) return@forEach
+                                ledger.mark(listOf(sourceId), SourceLedgerStatus.UNSUPPORTED_CONTENT)
+                                records += ImportReportRecord(
+                                    sourceIds = listOf(sourceId),
+                                    originalQuestionNumber = null,
+                                    rawText = sourceById.getValue(sourceId).rawText,
+                                    status = SourceLedgerStatus.UNSUPPORTED_CONTENT,
+                                    reasonCode = ImportFailureReason.SOURCE_NOT_COVERED,
+                                    reasonMessage = "模型确认该 Word 结构暂不支持",
+                                    apiAttempted = true,
+                                )
+                            }
+                            parsed.answerSectionSourceIds.filter(sourceById::containsKey).forEach { sourceId ->
+                                if (answerSectionIds.add(sourceId) && ledger.status(sourceId) == null) {
+                                    ledger.mark(listOf(sourceId), SourceLedgerStatus.NON_QUESTION_CONTENT)
+                                    records += ImportReportRecord(
+                                        sourceIds = listOf(sourceId),
+                                        originalQuestionNumber = null,
+                                        rawText = sourceById.getValue(sourceId).rawText,
+                                        status = SourceLedgerStatus.NON_QUESTION_CONTENT,
+                                        reasonMessage = "模型识别为集中答案区",
+                                        apiAttempted = true,
+                                    )
+                                }
+                            }
+                            parsed.questions.forEach { candidate ->
+                                val key = candidate.identityKey()
+                                val existing = pending[key]
+                                pending[key] = if (existing == null) candidate else existing.merge(candidate)
+                            }
+                            parsed.unresolvedSourceIds.forEach { sourceId ->
+                                if (sourceId in sourceById) {
+                                    failures[sourceId] = Failure(
+                                        ImportFailureReason.SOURCE_NOT_COVERED,
+                                        "模型无法确认该原文的题目归属",
+                                        true,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -250,6 +279,14 @@ class SmartImportPipeline(
             val response = call(request, apiKey) { requestCount++ }
             when (response) {
                 is ModelCall.Failed -> rejectBoundary(boundary, ImportFailureReason.API_REQUEST_FAILED, response.message, records, ledger, sourceById)
+                is ModelCall.Truncated -> rejectBoundary(
+                    boundary,
+                    ImportFailureReason.API_RESPONSE_TRUNCATED,
+                    response.message,
+                    records,
+                    ledger,
+                    sourceById,
+                )
                 is ModelCall.Null -> rejectBoundary(boundary, ImportFailureReason.API_RETURNED_NULL, "模型返回 null", records, ledger, sourceById)
                 is ModelCall.Success -> {
                     val parsed = SmartResponseParser.parse(response.raw)
@@ -384,13 +421,23 @@ class SmartImportPipeline(
         val key = sha256(gson.toJson(request))
         cache.get(key)?.let { return if (it.trim().equals("null", true)) ModelCall.Null else ModelCall.Success(it) }
         onNetworkRequest()
-        val raw = try {
+        val completion = try {
             client.complete(apiKey, request)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
             return ModelCall.Failed(error.message ?: "网络请求失败")
-        }.trim()
+        }
+        val raw = completion.content.trim()
+        if (completion.finishReason.equals("length", ignoreCase = true)) {
+            return ModelCall.Truncated("模型输出达到长度上限，已尝试缩小原文范围")
+        }
+        if (!completion.finishReason.isNullOrBlank() && !completion.finishReason.equals("stop", ignoreCase = true)) {
+            return ModelCall.Failed("模型响应未正常结束：${completion.finishReason}")
+        }
+        if (isLikelyTruncatedJson(raw)) {
+            return ModelCall.Truncated("模型返回的 JSON 在结束前被截断，已尝试缩小原文范围")
+        }
         if (raw.isEmpty() || raw.equals("null", true)) return ModelCall.Null
         // Only syntactically valid, request-scoped protocol responses are reusable. Invalid or
         // out-of-scope JSON must reach the provider again instead of becoming a cached failure.
@@ -401,11 +448,138 @@ class SmartImportPipeline(
                 parsed = parsed,
                 allowedSourceIds = request.sourceBlocks.map { it.sourceId }.toSet(),
                 requiredCandidateSourceIds = request.candidateSourceIds.toSet(),
-            ) == null
+            ) == null &&
+            responseCoverageComplete(parsed, request)
         ) {
             cache.put(key, raw)
         }
         return ModelCall.Success(raw)
+    }
+
+    private suspend fun callBoundaryAdaptive(
+        request: SmartModelRequest,
+        apiKey: String,
+        depth: Int = 0,
+        onNetworkRequest: () -> Unit,
+    ): List<ScopedModelCall> {
+        val response = call(request, apiKey, onNetworkRequest)
+        if (response !is ModelCall.Truncated || depth >= MAX_ADAPTIVE_SPLIT_DEPTH) {
+            return listOf(ScopedModelCall(request, response))
+        }
+        val children = splitBoundaryRequest(request)
+            ?: return listOf(ScopedModelCall(request, response))
+        val results = mutableListOf<ScopedModelCall>()
+        children.forEach { child ->
+            results += callBoundaryAdaptive(child, apiKey, depth + 1, onNetworkRequest)
+        }
+        return results
+    }
+
+    private fun splitBoundaryRequest(request: SmartModelRequest): List<SmartModelRequest>? {
+        if (request.stage != SmartRecognitionStage.BOUNDARY) return null
+        val slices = request.sourceBlocks
+        if (slices.size > 1) {
+            val midpoint = slices.size / 2
+            val boundary = (1 until slices.size)
+                .filter { index -> startsQuestionBoundary(slices[index]) }
+                .minByOrNull { index -> kotlin.math.abs(index - midpoint) }
+            if (boundary != null) {
+                return listOf(
+                    request.copy(chunkId = "${request.chunkId}-a", sourceBlocks = slices.take(boundary)),
+                    request.copy(chunkId = "${request.chunkId}-b", sourceBlocks = slices.drop(boundary)),
+                )
+            }
+            if (slices.size <= 2) return null
+            // Share the pivot paragraph so a question crossing the approximate split remains whole
+            // in at least one child whenever it spans only adjacent source blocks.
+            return listOf(
+                request.copy(chunkId = "${request.chunkId}-a", sourceBlocks = slices.take(midpoint + 1)),
+                request.copy(chunkId = "${request.chunkId}-b", sourceBlocks = slices.drop(midpoint)),
+            )
+        }
+        val slice = slices.singleOrNull() ?: return null
+        if (slice.rawText.length < MIN_ADAPTIVE_SPLIT_CHARS) return null
+        val midpoint = slice.rawText.length / 2
+        val questionBoundary = QUESTION_MARKER.findAll(slice.rawText)
+            .map { it.range.first }
+            .filter { it in MIN_ADAPTIVE_SPLIT_CHARS / 4..slice.rawText.length - MIN_ADAPTIVE_SPLIT_CHARS / 4 }
+            .minByOrNull { index -> kotlin.math.abs(index - midpoint) }
+        val leftEnd: Int
+        val rightStart: Int
+        if (questionBoundary != null) {
+            leftEnd = questionBoundary
+            rightStart = questionBoundary
+        } else {
+            val overlap = (slice.rawText.length / 10).coerceIn(100, 400)
+            leftEnd = (midpoint + overlap).coerceAtMost(slice.rawText.length - 1)
+            rightStart = (midpoint - overlap).coerceAtLeast(1)
+        }
+        val left = slice.copy(
+            rawText = slice.rawText.substring(0, leftEnd),
+            charEnd = slice.charStart + leftEnd,
+        )
+        val right = slice.copy(
+            rawText = slice.rawText.substring(rightStart),
+            charStart = slice.charStart + rightStart,
+        )
+        return listOf(
+            request.copy(chunkId = "${request.chunkId}-a", sourceBlocks = listOf(left)),
+            request.copy(chunkId = "${request.chunkId}-b", sourceBlocks = listOf(right)),
+        )
+    }
+
+    private fun startsQuestionBoundary(slice: SourceBlockSlice): Boolean {
+        val text = slice.rawText.trimStart()
+        if (QUESTION_PREFIX.containsMatchIn(text) || TAGGED_QUESTION_HEADER.containsMatchIn(text)) return true
+        val numbering = slice.numbering ?: return false
+        if (numbering.level != 0) return false
+        return numbering.displayText?.trim()?.let { display ->
+            Regex("""^[（(]?\s*\d{1,6}""").containsMatchIn(display)
+        } == true
+    }
+
+    private fun classifiedSourceIds(parsed: ParsedSmartResponse): Set<String> = buildSet {
+        addAll(parsed.questions.flatMap { it.sourceIds })
+        addAll(parsed.answerSectionSourceIds)
+        addAll(parsed.nonQuestionSourceIds)
+        addAll(parsed.unsupportedSourceIds)
+        addAll(parsed.unresolvedSourceIds)
+    }
+
+    private fun responseCoverageComplete(parsed: ParsedSmartResponse, request: SmartModelRequest): Boolean {
+        val required = if (request.stage == SmartRecognitionStage.BOUNDARY) {
+            request.sourceBlocks.map { it.sourceId }.toSet()
+        } else {
+            request.candidateSourceIds.toSet()
+        }
+        return required.isNotEmpty() && classifiedSourceIds(parsed).containsAll(required)
+    }
+
+    private fun isLikelyTruncatedJson(raw: String): Boolean {
+        val value = raw.trim()
+        if (value.firstOrNull() !in setOf('{', '[')) return false
+        var braces = 0
+        var brackets = 0
+        var inString = false
+        var escaped = false
+        value.forEach { char ->
+            if (inString) {
+                when {
+                    escaped -> escaped = false
+                    char == '\\' -> escaped = true
+                    char == '"' -> inString = false
+                }
+            } else {
+                when (char) {
+                    '"' -> inString = true
+                    '{' -> braces++
+                    '}' -> braces--
+                    '[' -> brackets++
+                    ']' -> brackets--
+                }
+            }
+        }
+        return inString || escaped || braces > 0 || brackets > 0
     }
 
     private fun validateAndConvert(
@@ -929,8 +1103,11 @@ class SmartImportPipeline(
     private sealed interface ModelCall {
         data class Success(val raw: String) : ModelCall
         data class Failed(val message: String) : ModelCall
+        data class Truncated(val message: String) : ModelCall
         data object Null : ModelCall
     }
+
+    private data class ScopedModelCall(val request: SmartModelRequest, val call: ModelCall)
 
     private sealed interface CandidateValidation {
         data class Accepted(val value: RecognizedQuestion, val warnings: List<String>) : CandidateValidation
@@ -940,10 +1117,13 @@ class SmartImportPipeline(
     private data class Failure(val reason: ImportFailureReason, val message: String, val apiAttempted: Boolean)
 
     companion object {
+        private const val MAX_ADAPTIVE_SPLIT_DEPTH = 6
+        private const val MIN_ADAPTIVE_SPLIT_CHARS = 800
         private val QUESTION_PREFIX = Regex("""^(?:(?:第)?\d{1,6}(?:题|[.、)）])|[（(]\d{1,6}[）)])""")
         private val QUESTION_MARKER = Regex(
             """(?:^|[\r\n\s])(?:(?:第\s*)?\d{1,6}\s*题|[（(]\s*\d{1,6}\s*[）)]|\d{1,6}\s*[.．、)）])""",
         )
+        private val TAGGED_QUESTION_HEADER = Regex("""^\[(判断题|单选题|多选题)](?:\[[^]\r\n]*])*\s*$""")
         private val OPTION_PREFIX = Regex("""^[A-Ha-h][.．、:：)）]""")
         private val OPTION_MARKER = Regex("""(?:^|[\r\n\s])([A-Ha-h])\s*[.．、:：)）]""")
         private val OPTION_NUMBERING = Regex("""^([A-Ha-h])(?:[.．、:：)）]|$)""")
@@ -957,6 +1137,7 @@ private fun SourceLedgerStatus.isRetryableFailure(): Boolean =
 class SourceBlockChunker(
     private val maxEstimatedTokens: Int,
     private val overlapBlocks: Int,
+    private val maxSlicesPerChunk: Int = 48,
 ) {
     fun chunk(sources: List<ImportSourceBlock>): List<SourceChunk> {
         if (sources.isEmpty()) return emptyList()
@@ -967,7 +1148,7 @@ class SourceBlockChunker(
             val selected = mutableListOf<SourceBlockSlice>()
             var tokens = 0
             var index = cursor
-            while (index < slices.size) {
+            while (index < slices.size && selected.size < maxSlicesPerChunk.coerceAtLeast(1)) {
                 val cost = estimateTokens(slices[index])
                 if (selected.isNotEmpty() && tokens + cost > maxEstimatedTokens) break
                 selected += slices[index]

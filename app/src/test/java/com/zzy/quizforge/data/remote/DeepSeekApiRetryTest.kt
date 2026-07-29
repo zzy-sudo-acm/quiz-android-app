@@ -1,5 +1,8 @@
 package com.zzy.quizforge.data.remote
 
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
+import com.zzy.quizforge.util.document.SmartRecognitionStage
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicInteger
@@ -13,11 +16,46 @@ import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import okio.Buffer
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import kotlin.test.assertFailsWith
 
 class DeepSeekApiRetryTest {
+    @Test
+    fun `smart completion uses JSON non-thinking mode and preserves completion metadata`() = runTest {
+        val attempts = AtomicInteger()
+        val requestBodies = mutableListOf<JsonObject>()
+        val client = scriptedClient(attempts) { _, request ->
+            val buffer = Buffer()
+            requireNotNull(request.body).writeTo(buffer)
+            requestBodies += JsonParser.parseString(buffer.readUtf8()).asJsonObject
+            response(
+                request,
+                200,
+                """{
+                  "choices":[{"finish_reason":"length","message":{"content":"{\"questions\":["}}],
+                  "usage":{"prompt_tokens":11,"completion_tokens":22,"total_tokens":33}
+                }""".trimIndent(),
+            )
+        }
+        val api = DeepSeekApi(client, client)
+
+        val completion = api.completeSmartImport("key", SmartRecognitionStage.BOUNDARY, "{}")
+        api.testConnection("key")
+
+        assertEquals("{\"questions\":[", completion.content)
+        assertEquals("length", completion.finishReason)
+        assertEquals(11L, completion.usage?.promptTokens)
+        assertEquals(22L, completion.usage?.completionTokens)
+        assertEquals(33L, completion.usage?.totalTokens)
+        assertEquals("disabled", requestBodies[0].getAsJsonObject("thinking").get("type").asString)
+        assertEquals("json_object", requestBodies[0].getAsJsonObject("response_format").get("type").asString)
+        assertEquals(false, requestBodies[0].get("stream").asBoolean)
+        assertEquals("disabled", requestBodies[1].getAsJsonObject("thinking").get("type").asString)
+        assertEquals(false, requestBodies[1].has("response_format"))
+    }
+
     @Test
     fun `authentication and payment failures are requested only once`() = runTest {
         listOf(401, 402, 403).forEach { code ->

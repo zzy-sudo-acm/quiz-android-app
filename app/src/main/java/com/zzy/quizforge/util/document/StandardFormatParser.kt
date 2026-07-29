@@ -12,6 +12,27 @@ class StandardFormatParser(
     private val clock: () -> Long = System::currentTimeMillis,
     private val reportId: () -> String = { UUID.randomUUID().toString() },
 ) {
+    /**
+     * Recognizes the common export format whose question boundary is an exact metadata header,
+     * for example `[单选题][难度2][作业;考试]`. This path is deliberately conservative so smart
+     * import may use it without an API call only when every tagged group is parsed successfully.
+     */
+    fun parseTaggedIfComplete(
+        fileName: String,
+        sourceBlocks: List<ImportSourceBlock>,
+    ): ImportRecognitionResult? {
+        val expectedQuestionCount = taggedQuestionCount(sourceBlocks) ?: return null
+        val result = parse(fileName, sourceBlocks)
+        return result.takeIf {
+            it.questions.size == expectedQuestionCount &&
+                it.report.acceptedQuestionCount == expectedQuestionCount &&
+                it.report.rejectedQuestionCount == 0 &&
+                it.report.nonQuestionCount == 0 &&
+                it.report.unsupportedCount == 0 &&
+                it.report.ledgerComplete
+        }
+    }
+
     fun parse(fileName: String, sourceBlocks: List<ImportSourceBlock>): ImportRecognitionResult {
         val startedAt = clock()
         val nonEmpty = sourceBlocks.filter { it.isNonEmpty }.sortedBy { it.sourceOrder }
@@ -68,6 +89,18 @@ class StandardFormatParser(
             }
 
             val lines = block.rawText.lines().map(String::trim).filter(String::isNotBlank)
+            val taggedType = lines.firstOrNull()?.let(::taggedQuestionType)
+            if (taggedType != null) {
+                finalizeCurrent()
+                current = Builder(number = null, taggedFormat = true).also { builder ->
+                    builder.sourceIds += block.sourceId
+                    builder.declareType(taggedType)
+                    lines.drop(1).forEach { builder.consumeLine(it, block.sourceId) }
+                    builder.attachImages(block.images, block.rawText)
+                    builder.checkImageFormats(block.images)
+                }
+                continue
+            }
             val manualQuestion = lines.firstOrNull()?.let(::questionPrefix)
             val automaticQuestion = automaticQuestion(block)
             val startsQuestion = manualQuestion != null || automaticQuestion != null
@@ -195,9 +228,44 @@ class StandardFormatParser(
         return PrefixInfo(number, match.range.last + 1)
     }
 
+    private fun taggedQuestionType(text: String): QuestionType? =
+        TAGGED_TYPE_HEADER.matchEntire(text)?.groupValues?.get(1)?.let { label ->
+            when (label) {
+                "单选题" -> QuestionType.SINGLE
+                "多选题" -> QuestionType.MULTIPLE
+                "判断题" -> QuestionType.TRUE_FALSE
+                else -> null
+            }
+        }
+
+    /** Returns null unless all meaningful content belongs to one or more well-formed tag groups. */
+    private fun taggedQuestionCount(sourceBlocks: List<ImportSourceBlock>): Int? {
+        val nonEmpty = sourceBlocks.filter { it.isNonEmpty }.sortedBy { it.sourceOrder }
+        if (nonEmpty.isEmpty() || nonEmpty.any { it.sourceType == SourceBlockType.UNSUPPORTED }) return null
+
+        var count = 0
+        var currentHasContent = false
+        nonEmpty.forEach { block ->
+            val lines = block.rawText.lines().map(String::trim).filter(String::isNotBlank)
+            val isHeader = lines.firstOrNull()?.let(::taggedQuestionType) != null
+            if (isHeader) {
+                if (count > 0 && !currentHasContent) return null
+                count++
+                currentHasContent = lines.drop(1).any(String::isNotBlank) || block.images.isNotEmpty()
+            } else {
+                if (count == 0) return null
+                currentHasContent = currentHasContent || lines.isNotEmpty() || block.images.isNotEmpty()
+            }
+        }
+        return count.takeIf { it > 0 && currentHasContent }
+    }
+
     private data class PrefixInfo(val number: Int?, val prefixLength: Int)
 
-    private class Builder(val number: Int?) {
+    private class Builder(
+        val number: Int?,
+        private val taggedFormat: Boolean = false,
+    ) {
         val sourceIds = linkedSetOf<String>()
         val stemParts = mutableListOf<String>()
         val stemSources = linkedSetOf<String>()
@@ -216,6 +284,12 @@ class StandardFormatParser(
         var explicitType: QuestionType? = null
         var currentOption: String? = null
         var lastField: Field = Field.STEM
+
+        fun declareType(type: QuestionType) {
+            explicitType = type
+            currentOption = null
+            lastField = Field.TYPE
+        }
 
         fun consumeLine(line: String, sourceId: String, automaticOptionKey: String? = null) {
             TYPE_LINE.matchEntire(line)?.let { match ->
@@ -250,6 +324,33 @@ class StandardFormatParser(
                 currentOption = null
                 lastField = Field.KNOWLEDGE
                 return
+            }
+
+            if (taggedFormat) {
+                val match = TRAILING_TAGGED_ANSWER.matchEntire(line)
+                if (match != null) {
+                    val stem = match.groupValues[1].trim()
+                    // A non-empty prefix after options is probably option text ending in brackets,
+                    // not an answer. An answer-only paragraph is valid both before and after options.
+                    if (optionParts.isEmpty() || stem.isBlank()) {
+                        if (stem.isNotBlank()) {
+                            stemParts += stem
+                            stemSources += sourceId
+                        }
+                        answerSources += sourceId
+                        currentOption = null
+                        lastField = Field.ANSWER
+                        if (rawAnswer != null) {
+                            addError(
+                                ImportFailureReason.MULTIPLE_QUESTIONS_MERGED,
+                                "同一题型标签内出现多个括号答案，可能包含多道未分隔题目",
+                            )
+                            return
+                        }
+                        rawAnswer = match.groupValues[2].trim()
+                        return
+                    }
+                }
             }
 
             OptionTextSplitter.splitInlineOptions(line)?.let { split ->
@@ -436,5 +537,11 @@ class StandardFormatParser(
         private val EXPLANATION_LINE = Regex("""^\s*(?:解析|解释|题解)\s*[:：]?\s*(.*?)\s*$""")
         private val KNOWLEDGE_LINE = Regex("""^\s*(?:知识点|考点)\s*[:：]?\s*(.*?)\s*$""")
         private val TYPE_LINE = Regex("""^\s*题型\s*[:：]?\s*(\S+)\s*$""")
+        private val TAGGED_TYPE_HEADER = Regex(
+            """^\s*\[(判断题|单选题|多选题)](?:\[[^]\r\n]*])*\s*$""",
+        )
+        private val TRAILING_TAGGED_ANSWER = Regex(
+            """^\s*(.*?)\s*[（(]\s*([A-Ha-h]+|对|错|正确|错误|√|×)\s*[）)]\s*[。.!！?？]?\s*$""",
+        )
     }
 }

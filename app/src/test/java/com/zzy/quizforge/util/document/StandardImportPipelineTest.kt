@@ -10,6 +10,99 @@ import org.junit.Test
 class StandardImportPipelineTest {
 
     @Test
+    fun `tagged export format imports 314 questions offline including separate answers`() {
+        val sources = buildList {
+            var order = 0
+            repeat(84) { index ->
+                add(source("tf-header-$index", order++, "[判断题][难度2][作业;考试]"))
+                add(source("tf-stem-$index", order++, "第${index + 1}道判断题" + if (index == 83) "" else "（对）。"))
+                if (index == 83) add(source("tf-answer-$index", order++, "（错）。"))
+            }
+            repeat(132) { index ->
+                add(source("single-header-$index", order++, "[单选题][难度2][作业;考试]"))
+                val stem = if (index < 2) "允许题干相同但选项不同" else "第${index + 1}道单选题"
+                add(source("single-stem-$index", order++, stem + if (index == 131) "" else "（A）。"))
+                if (index == 131) add(source("single-answer-$index", order++, "（A）。"))
+                add(source("single-a-$index", order++, "A. 选项甲$index"))
+                add(source("single-b-$index", order++, "B. 选项乙$index"))
+                add(source("single-c-$index", order++, "C. 选项丙$index"))
+                add(source("single-d-$index", order++, "D. 选项丁$index"))
+            }
+            repeat(98) { index ->
+                add(source("multiple-header-$index", order++, "[多选题][难度2][作业;考试]"))
+                add(source("multiple-stem-$index", order++, "第${index + 1}道多选题（AB）。"))
+                add(source("multiple-a-$index", order++, "A. 选项甲$index"))
+                add(source("multiple-b-$index", order++, "B. 选项乙$index"))
+                add(source("multiple-c-$index", order++, "C. 选项丙$index"))
+                add(source("multiple-d-$index", order++, "D. 选项丁$index"))
+            }
+        }
+
+        val result = requireNotNull(parser.parseTaggedIfComplete("tagged-314.docx", sources))
+
+        assertEquals(314, result.questions.size)
+        assertEquals(84, result.questions.count { it.question.type == QuestionType.TRUE_FALSE })
+        assertEquals(132, result.questions.count { it.question.type == QuestionType.SINGLE })
+        assertEquals(98, result.questions.count { it.question.type == QuestionType.MULTIPLE })
+        assertEquals(listOf("B"), result.questions[83].question.answer)
+        assertEquals(listOf("A"), result.questions[84 + 131].question.answer)
+        assertEquals(2, result.questions.count { it.question.question == "允许题干相同但选项不同" })
+        assertEquals(314, result.report.acceptedQuestionCount)
+        assertEquals(0, result.report.rejectedQuestionCount)
+        assertEquals(0, result.report.nonQuestionCount)
+        assertEquals(0, result.report.unsupportedCount)
+        assertFalse(result.report.usedApi)
+        assertEquals(0, result.report.apiRequestCount)
+        assertTrue(result.report.ledgerComplete)
+        assertEquals(
+            sources.map { it.sourceId }.toSet(),
+            result.report.records.flatMap { it.sourceIds }.toSet(),
+        )
+    }
+
+    @Test
+    fun `smart local tagged preflight is conservative when one group is incomplete`() {
+        val result = parser.parseTaggedIfComplete(
+            "incomplete-tagged.docx",
+            listOf(
+                source("header", 0, "[单选题][难度2]"),
+                source("stem", 1, "缺少选项（A）。"),
+            ),
+        )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun `one tagged group with two answers cannot silently merge two questions`() {
+        val sources = listOf(
+            source("header", 0, "[判断题]"),
+            source("first", 1, "第一道题（对）。"),
+            source("second", 2, "第二道题（错）。"),
+        )
+
+        assertNull(parser.parseTaggedIfComplete("merged-tagged.docx", sources))
+        val visibleFailure = parser.parse("merged-tagged.docx", sources).report.records.single()
+        assertEquals(ImportFailureReason.MULTIPLE_QUESTIONS_MERGED, visibleFailure.reasonCode)
+    }
+
+    @Test
+    fun `tagged answer-only paragraph may follow the options`() {
+        val result = parser.parseTaggedIfComplete(
+            "answer-after-options.docx",
+            listOf(
+                source("header", 0, "[单选题][难度2]"),
+                source("stem", 1, "正确项是哪一个"),
+                source("a", 2, "A. 甲"),
+                source("b", 3, "B. 乙"),
+                source("answer", 4, "（B）。"),
+            ),
+        )
+
+        assertEquals(listOf("B"), requireNotNull(result).questions.single().question.answer)
+    }
+
+    @Test
     fun `answer A without options is not invented as true false`() {
         val result = StandardFormatParser(clock = { 1 }, reportId = { "no-guess" }).parse(
             "broken.docx",
