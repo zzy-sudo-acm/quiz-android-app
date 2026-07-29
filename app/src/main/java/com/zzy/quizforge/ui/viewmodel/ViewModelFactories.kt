@@ -43,9 +43,10 @@ class ImportViewModelFactory(
 class SettingsViewModelFactory(
     private val settingsStore: SettingsStore,
     private val quizRepository: QuizRepository,
+    private val importRepository: ImportRepository,
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         @Suppress("UNCHECKED_CAST")
-        return SettingsViewModel(settingsStore, quizRepository) as T
+        return SettingsViewModel(settingsStore, quizRepository, importRepository) as T
     }
 }

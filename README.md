@@ -1,76 +1,101 @@
 # QuizForge
 
-Android 刷题 App，支持导入 Word/DOCX 题库文件，自动解析为刷题题库。解析失败的题目可通过用户配置的 DeepSeek API 进行 AI 修复。
+QuizForge 是一个本地优先的 Android 刷题应用，可从 Word（`.docx`）导入单选题、多选题和判断题，并提供顺序练习、随机练习、错题重练、进度与掌握率统计。
 
-## 功能
+## 两种相互独立的导入方式
 
-- **题库导入**：从 DOCX 文件导入题目，自动解析单选/多选/判断题
-- **多种刷题模式**：顺序刷题、随机刷题、错题重练
-- **AI 修复**：本地解析失败的题目，可调用 DeepSeek API 智能修复
-- **答题统计**：记录答题正确率、进度追踪
-- **图片支持**：支持题目中的图片显示
+### 标准格式导入（推荐）
 
-## 功能流程
+- 完全离线，不读取 API Key，也不会产生模型费用。
+- 按确定性规则解析题号、题干、选项、答案、题型、解析、知识点和图片。
+- 适合按 QuizForge 格式整理的新题库；格式不合规的内容会进入导入报告，不会静默丢失。
+- App 内可查看格式说明并保存真正的 Word 模板；仓库模板位于 [`app/src/main/assets/quizforge-standard-template.docx`](app/src/main/assets/quizforge-standard-template.docx)。
+
+最小示例：
+
+```text
+1. 下面哪一项是正确答案？
+A. 选项一
+B. 选项二
+C. 选项三
+D. 选项四
+答案：B
+题型：单选
+解析：可选
+知识点：可选
+```
+
+### 智能识别混乱格式
+
+- 面向自动编号、表格、集中答案区、一段多题等复杂 Word 结构。
+- 选择文件时只在本机提取结构；必须由用户再次确认后才会调用 DeepSeek API。
+- 模型获得的是分段后的题库文字及必要结构信息，不包含原始 DOCX 二进制或图片二进制。
+- 每个模型结果都要经过来源校验、答案与选项校验、重复题检测；无法确认的内容保留在报告中。
+- 需要用户自己的 API Key，费用由用户的 DeepSeek 账户承担。
 
 ```mermaid
 flowchart TD
-    A[选择 DOCX 文件] --> B[DocxParser 提取文本 + 图片]
-    B --> C[OriginalQuestionParser 本地规则解析]
-    C --> D{解析成功?}
-    D -->|成功| E[直接入库]
-    D -->|失败| F{已配置 API Key?}
-    F -->|否| G[跳过，标记为失败]
-    F -->|是| H[逐段发送给 DeepSeek API]
-    H --> I{JSON Schema 校验}
-    I -->|通过| E
-    I -->|失败| J[跳过该段，记录日志]
-    E --> K[生成题库]
-    G --> K
-    J --> K
-    K --> L[开始刷题]
+    A[选择导入方式] --> B[标准格式导入]
+    A --> C[智能识别混乱格式]
+    B --> D[一次读取 DOCX]
+    C --> D
+    D --> E[建立有序来源块与完整账本]
+    E --> F[本地确定性解析]
+    E --> G[用户确认后分段调用 API]
+    F --> H[预览导入报告]
+    G --> H
+    H --> I{确认创建题库?}
+    I -->|是| J[写入题目、图片与报告]
+    I -->|否| K[清理本次临时文件]
 ```
 
-## 截图
+## 导入可追溯性
 
-> 以下为 App 主要界面截图，请替换为实际截图。
+每个非空段落、表格单元格和不支持的 Word 结构都进入来源账本，最终被标记为：
 
-| 首页题库列表 | 刷题界面 | 导入文档 |
-|:---:|:---:|:---:|
-| ![首页](docs/screenshots/home.png) | ![刷题](docs/screenshots/quiz.png) | ![导入](docs/screenshots/import.png) |
+- 已生成题目
+- 题目候选但被拒绝（附稳定原因码和原文）
+- 非题目内容
+- 暂不支持的内容
 
-| 答题反馈 | 设置页面 | AI 修复进度 |
-|:---:|:---:|:---:|
-| ![答题](docs/screenshots/answer.png) | ![设置](docs/screenshots/settings.png) | ![修复](docs/screenshots/repair.png) |
+导入报告会记录题号、来源块、原文、失败原因、创建后的题目 ID、图片与表格数量，以及智能模式的 API 使用情况。报告与题库一起持久化。
+
+## 数据与密钥安全
+
+- API Key 使用 Android 加密存储；如果安全存储不可用，App 会拒绝保存 Key，不回退到明文。
+- Key 所在设置文件已排除在云备份和设备迁移之外。
+- 标准格式导入不读取 Key、不联网、不上传题库内容。
+- 智能识别仅在明确确认后调用 API；调用前界面会说明发送内容、费用和不保证全部识别成功。
+- 仓库不包含硬编码密钥或凭证。
+
+## 其他功能
+
+- 顺序刷题、随机刷题、错题重练
+- 单次提交防重、答题记录持久化、已完成顺序练习的正确恢复
+- 多图题干和多图选项显示
+- 删除题库时同步清理题目、答题记录、进度与本地图片
 
 ## 技术栈
 
-- Kotlin + Jetpack Compose
-- Room 数据库
-- Navigation Compose
+- Kotlin、Jetpack Compose、Navigation Compose
+- Room
+- Coroutines / Flow
 - OkHttp
-- MVVM 架构
+- OOXML（DOCX）结构解析
 
-## AI 修复原则
+## 本地构建
 
-AI（DeepSeek API）仅用于修复 DOCX 解析后**结构异常**的题块，严格遵守以下约束：
+要求：JDK 17、Android SDK 35、Android Studio 2024+。
 
-- **不负责凭空生成答案**：AI 不能编造题目或答案
-- **只修复结构异常题块**：将格式错乱的原文整理为规范的 JSON 结构
-- **原文没有答案时 `answer = null`**：不推测、不补全
-- **修复失败进入人工确认**：校验不通过的题块直接跳过，不在 App 内静默丢弃
-- **所有 AI 输出必须经过 JSON Schema 校验**：详见 [AI 修复接口契约](docs/ai-repair-contract.md)
+```powershell
+.\gradlew.bat test
+.\gradlew.bat assembleDebug
+.\gradlew.bat assembleAndroidTest
+.\gradlew.bat lintDebug
+```
 
-详见 [架构文档](docs/architecture.md) 和 [AI 修复接口契约](docs/ai-repair-contract.md)。
+## 文档
 
-## 注意事项
-
-- **API Key**：DeepSeek API Key 由用户在 App 设置页面本地输入，存储在设备本地，不会随项目上传或同步
-- 本项目不含任何硬编码的密钥或凭证
-
-## 本地运行
-
-1. 用 Android Studio 打开项目根目录
-2. 等待 Gradle 同步完成
-3. 选择模拟器或连接真机，点击 Run 运行
-
-要求：Android Studio 2024+、JDK 17、Android SDK 35
+- [当前架构](docs/architecture.md)
+- [智能识别接口与校验契约](docs/ai-repair-contract.md)
+- [导入链路审计与整改说明](docs/import-audit.md)

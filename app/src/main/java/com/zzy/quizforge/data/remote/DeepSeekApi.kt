@@ -2,7 +2,10 @@ package com.zzy.quizforge.data.remote
 
 import com.google.gson.Gson
 import com.google.gson.JsonParser
+import com.zzy.quizforge.util.document.SmartRecognitionStage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -16,6 +19,7 @@ import java.io.IOException
 class DeepSeekApi(
     private val streamingClient: OkHttpClient,
     private val repairClient: OkHttpClient,
+    private val retryDelay: suspend (Long) -> Unit = { delay(it) },
 ) {
     private val gson = Gson()
 
@@ -28,7 +32,7 @@ class DeepSeekApi(
          *
          * 所有 API 调用方法必须通过此常量引用模型名，不得分别硬编码。
          */
-        const val DEFAULT_MODEL = "deepseek-v4-flash"
+        val DEFAULT_MODEL: String = DeepSeekModelCatalog.defaultTier.modelName
 
         /** 单次 repair 请求最大重试次数（不含首次调用）。 */
         const val MAX_REPAIR_RETRIES = 2
@@ -54,7 +58,7 @@ class DeepSeekApi(
         ).toRequestBody("application/json; charset=utf-8".toMediaType())
 
         val request = Request.Builder()
-            .url("https://api.deepseek.com/chat/completions")
+            .url(DeepSeekModelCatalog.BASE_URL)
             .header("Authorization", "Bearer $apiKey")
             .header("Accept", "text/event-stream")
             .post(body)
@@ -103,7 +107,7 @@ class DeepSeekApi(
             ).toRequestBody("application/json; charset=utf-8".toMediaType())
 
             val request = Request.Builder()
-                .url("https://api.deepseek.com/chat/completions")
+                .url(DeepSeekModelCatalog.BASE_URL)
                 .header("Authorization", "Bearer $apiKey")
                 .post(body)
                 .build()
@@ -111,8 +115,14 @@ class DeepSeekApi(
             executeWithRetry(request)
         }
 
-    private fun executeWithRetry(request: Request): String {
-        var lastException: Exception? = null
+    /**
+     * Executes one logical model request batch, with at most three HTTP attempts.
+     *
+     * The import report's apiRequestCount is the number of logical model request batches;
+     * transport retries performed here are intentionally not counted as additional batches.
+     */
+    private suspend fun executeWithRetry(request: Request): String {
+        var lastException: IOException? = null
 
         for (attempt in 0..MAX_REPAIR_RETRIES) {
             try {
@@ -132,30 +142,23 @@ class DeepSeekApi(
                         return content
                     }
 
-                    val code = response.code
-                    val message = "DeepSeek API 修复请求失败：HTTP $code"
-                    response.close()
-
-                    if (attempt < MAX_REPAIR_RETRIES && isRetryable(code)) {
-                        val delay = RETRY_BASE_DELAY_MS * (1L shl attempt)
-                        Thread.sleep(delay)
-                        lastException = IOException(message)
-                        continue
-                    }
-                    throw IOException(message)
+                    throw HttpStatusException(response.code)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: HttpStatusException) {
+                lastException = e
+                if (!isRetryable(e.code) || attempt >= MAX_REPAIR_RETRIES) {
+                    throw e
                 }
             } catch (e: IOException) {
                 lastException = e
-                if (attempt < MAX_REPAIR_RETRIES && isRetryableException(e)) {
-                    val delay = RETRY_BASE_DELAY_MS * (1L shl attempt)
-                    Thread.sleep(delay)
-                    continue
-                }
-                // 不可重试的异常直接抛出，由调用方 catch 处理
-                if (attempt >= MAX_REPAIR_RETRIES || !isRetryableException(e)) {
+                if (attempt >= MAX_REPAIR_RETRIES) {
                     throw e
                 }
             }
+
+            retryDelay(RETRY_BASE_DELAY_MS * (1L shl attempt))
         }
 
         throw lastException ?: IOException("DeepSeek API 修复请求失败：未知错误")
@@ -164,11 +167,9 @@ class DeepSeekApi(
     private fun isRetryable(httpCode: Int): Boolean =
         httpCode == 429 || httpCode in 500..599
 
-    private fun isRetryableException(e: IOException): Boolean {
-        // 网络层 I/O 异常（连接超时、连接重置等）适合重试
-        // 4xx 参数/认证错误不在这个方法处理（由 HTTP code 分支处理）
-        return true
-    }
+    private class HttpStatusException(
+        val code: Int,
+    ) : IOException("DeepSeek API 修复请求失败：HTTP $code")
 
     private fun buildRepairPrompt(blockText: String): String =
         """
@@ -250,13 +251,110 @@ class DeepSeekApi(
             ).toRequestBody("application/json; charset=utf-8".toMediaType())
 
             val request = Request.Builder()
-                .url("https://api.deepseek.com/chat/completions")
+                .url(DeepSeekModelCatalog.BASE_URL)
                 .header("Authorization", "Bearer $apiKey")
                 .post(body)
                 .build()
 
             executeWithRetry(request)
         }
+
+    /**
+     * Document-level QuizForge import endpoint. The payload is structured text/metadata only;
+     * image bytes and the DOCX binary are never attached.
+     */
+    suspend fun completeSmartImport(
+        apiKey: String,
+        stage: SmartRecognitionStage,
+        requestJson: String,
+        model: String = DEFAULT_MODEL,
+    ): String = withContext(Dispatchers.IO) {
+        val prompt = if (stage == SmartRecognitionStage.BOUNDARY) {
+            buildBoundaryPrompt(requestJson)
+        } else {
+            buildStructurePrompt(requestJson)
+        }
+        val body = gson.toJson(
+            mapOf(
+                "model" to model,
+                "stream" to false,
+                "temperature" to 0.0,
+                "max_tokens" to 8192,
+                "messages" to listOf(mapOf("role" to "user", "content" to prompt)),
+            ),
+        ).toRequestBody("application/json; charset=utf-8".toMediaType())
+        val request = Request.Builder()
+            .url(DeepSeekModelCatalog.BASE_URL)
+            .header("Authorization", "Bearer $apiKey")
+            .post(body)
+            .build()
+        executeWithRetry(request)
+    }
+
+    /** Minimal connection test. It never includes quiz content. */
+    suspend fun testConnection(apiKey: String, model: String = DEFAULT_MODEL): String = withContext(Dispatchers.IO) {
+        val body = gson.toJson(
+            mapOf(
+                "model" to model,
+                "stream" to false,
+                "temperature" to 0.0,
+                "max_tokens" to 2,
+                "messages" to listOf(mapOf("role" to "user", "content" to "只回复 OK")),
+            ),
+        ).toRequestBody("application/json; charset=utf-8".toMediaType())
+        val request = Request.Builder()
+            .url(DeepSeekModelCatalog.BASE_URL)
+            .header("Authorization", "Bearer $apiKey")
+            .post(body)
+            .build()
+        executeWithRetry(request)
+    }
+
+    private fun buildBoundaryPrompt(requestJson: String): String = """
+你是 QuizForge 的 Word 题库边界识别器。输入是按原文顺序排列的 SourceBlock JSON；它包含段落、表格单元格坐标、Word 自动编号、图片占位和字符范围。图片二进制没有发送，禁止猜图片内容。
+
+任务：识别本批次中所有题目边界、集中答案区、非题目内容和无法确认内容。一个 source block 可以包含多道题，questions 必须允许返回多个对象。不要改写、润色或补写任何原文。
+
+只返回严格 JSON：
+{
+  "questions": [{
+    "tempId": "q1",
+    "sourceIds": ["p1", "p2"],
+    "originalQuestionNumber": 1,
+    "type": "single|multiple|truefalse（仅在完全确定时提供）",
+    "question": "原文题干（仅在完全确定时提供）",
+    "options": [{"key":"A","text":"原文选项"}],
+    "answer": ["A"],
+    "explanation": null,
+    "knowledge": null,
+    "questionSource": ["p1"],
+    "optionSources": {"A":["p2"]},
+    "answerSource": ["p3"],
+    "explanationSource": [],
+    "knowledgeSource": []
+  }],
+  "answerSections": [{"sourceIds":["p100"]}],
+  "nonQuestionSourceIds": ["p0"],
+  "unsupportedSourceIds": [],
+  "unresolvedSourceIds": []
+}
+
+只有字段完整且逐字来自 sourceIds 时才在第一阶段附带 type/question/options/answer；否则只返回边界，QuizForge 会进行第二阶段。不得根据常识猜答案，不得生成原文没有的选项。
+
+输入：
+$requestJson
+""".trimIndent()
+
+    private fun buildStructurePrompt(requestJson: String): String = """
+你是 QuizForge 的题目结构化器。输入包含已识别候选题的完整 SourceBlock，以及可能位于文档末尾的答案汇总区。图片仅为占位符，禁止猜图片内容。
+
+从输入中返回零道、一 道或多道题。所有输出文字必须逐字来自所声明的 sourceIds；只允许去题号、统一标点/空白和答案标号。不得改写题干、补选项、凭知识纠正原题或猜答案。缺少明确答案时不要伪造成功，应将相关 sourceId 放进 unresolvedSourceIds。
+
+只返回严格 JSON，questions 每项必须含：tempId、sourceIds、originalQuestionNumber、type、question、options、answer、explanation、knowledge、questionSource、optionSources、answerSource、explanationSource、knowledgeSource。还可返回 nonQuestionSourceIds、unsupportedSourceIds、unresolvedSourceIds；格式与第一阶段相同。
+
+输入：
+$requestJson
+""".trimIndent()
 
     private fun buildLabelPrompt(snapshotJson: String): String = """
 你是一个文档结构标注助手。下面是一个题目片段的结构化快照。

@@ -3,37 +3,46 @@ package com.zzy.quizforge.ui.importdoc
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.zzy.quizforge.data.repository.ImportProgress
 import com.zzy.quizforge.data.repository.ImportRepository
-import com.zzy.quizforge.util.DocumentContent
-import kotlinx.coroutines.Dispatchers
+import com.zzy.quizforge.util.document.ImportMode
+import com.zzy.quizforge.util.document.ImportRecognitionResult
+import com.zzy.quizforge.util.document.ImportReportRecord
+import com.zzy.quizforge.util.document.PreparedImport
+import com.zzy.quizforge.util.document.SmartRecognitionStage
+import com.zzy.quizforge.util.document.SourceLedgerStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 data class ImportUiState(
+    val mode: ImportMode? = null,
     val fileName: String = "",
     val bankName: String = "",
-    val documentContent: DocumentContent? = null,
-    val selectedUri: android.net.Uri? = null,
+    val prepared: PreparedImport? = null,
+    val recognition: ImportRecognitionResult? = null,
     val isReading: Boolean = false,
-    val isGenerating: Boolean = false,
-    val statusText: String = "请选择 .docx 文件",
+    val isRecognizing: Boolean = false,
+    val isCommitting: Boolean = false,
+    val statusText: String = "请选择导入方式",
     val generatedBankId: Long? = null,
-    val generatedCount: Int = 0,
-    val localCount: Int = 0,
-    val apiCount: Int = 0,
-    val skippedCount: Int = 0,
-    val repairProgress: String = "",
+    val apiConfigured: Boolean = false,
+    val progressCurrent: Int = 0,
+    val progressTotal: Int = 0,
+    val ignoredFailuresConfirmed: Boolean = false,
     val error: String? = null,
 ) {
-    val canGenerate: Boolean
-        get() = documentContent?.text?.isNotBlank() == true && bankName.isNotBlank() && !isGenerating && !isReading
-    val canGenerateV2: Boolean
-        get() = selectedUri != null && bankName.isNotBlank() && !isGenerating && !isReading
+    val isBusy: Boolean get() = isReading || isRecognizing || isCommitting
+    val canChooseFile: Boolean get() = mode != null && !isBusy
+    val canRecognizeSmart: Boolean
+        get() = mode == ImportMode.SMART && prepared != null && recognition == null && apiConfigured && !isBusy
+    val canCommit: Boolean
+        get() = recognition?.questions?.isNotEmpty() == true &&
+            (recognition.report.hasUncertainContent.not() || ignoredFailuresConfirmed) &&
+            bankName.isNotBlank() && !isBusy && generatedBankId == null
 }
 
 class ImportViewModel(
@@ -41,133 +50,284 @@ class ImportViewModel(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ImportUiState())
     val uiState: StateFlow<ImportUiState> = _uiState.asStateFlow()
+    private var activeJob: Job? = null
+    private var operationGeneration = 0L
+
+    fun selectMode(mode: ImportMode) {
+        if (_uiState.value.isBusy || _uiState.value.mode == mode) return
+        _uiState.value.prepared?.let(repository::discardImport)
+        _uiState.value = ImportUiState(
+            mode = mode,
+            apiConfigured = mode == ImportMode.SMART && repository.hasApiKey(),
+            statusText = if (mode == ImportMode.STANDARD) {
+                "标准格式：完全离线，选择 Word 后立即预检"
+            } else {
+                "智能识别：先在本机提取结构，确认后才调用 API"
+            },
+        )
+    }
 
     fun updateBankName(value: String) {
         _uiState.update { it.copy(bankName = value) }
     }
 
+    fun acknowledgeFailedContent() {
+        _uiState.update { state ->
+            if (state.recognition?.report?.hasUncertainContent == true && !state.isBusy) {
+                state.copy(ignoredFailuresConfirmed = true)
+            } else state
+        }
+    }
+
+    fun refreshApiStatus() {
+        val smartMode = _uiState.value.mode == ImportMode.SMART
+        _uiState.update { it.copy(apiConfigured = smartMode && repository.hasApiKey()) }
+    }
+
     fun readDocument(uri: Uri, displayName: String) {
-        _uiState.update { it.copy(selectedUri = uri) }
-        viewModelScope.launch(Dispatchers.IO) {
-            _uiState.update {
-                it.copy(
-                    fileName = displayName,
-                    isReading = true,
-                    statusText = "正在解析文档...",
-                    error = null,
-                    generatedBankId = null,
-                )
-            }
-            runCatching { repository.extractDocx(uri) }
-                .onSuccess { text ->
-                    _uiState.update {
-                        it.copy(
-                            isReading = false,
-                            documentContent = text,
-                            bankName = it.bankName.ifBlank { displayName.substringBeforeLast('.') },
-                            statusText = "文档解析完成：${text.text.length} 字，${text.images.size} 张图片",
-                        )
-                    }
-                }
-                .onFailure { error ->
-                    _uiState.update {
-                        it.copy(
-                            isReading = false,
-                            error = error.message ?: "读取文档失败",
-                            statusText = "文档解析失败",
-                        )
-                    }
-                }
+        val mode = _uiState.value.mode ?: return
+        if (_uiState.value.isBusy) return
+        _uiState.value.prepared?.let(repository::discardImport)
+        _uiState.update {
+            it.copy(
+                fileName = displayName,
+                bankName = displayName.substringBeforeLast('.').ifBlank { "导入题库" },
+                prepared = null,
+                recognition = null,
+                isReading = true,
+                generatedBankId = null,
+                error = null,
+                statusText = "正在完整读取 Word 结构…",
+                progressCurrent = 0,
+                progressTotal = 0,
+                ignoredFailuresConfirmed = false,
+            )
         }
-    }
-
-    /** V2 import via importFromUri with SHADOW strategy (legacy user-visible, new pipeline comparison). */
-    fun generateV2() {
-        val state = _uiState.value
-        val uri = state.selectedUri ?: return
-        if (!state.canGenerateV2) return
-
-        viewModelScope.launch {
-            _uiState.update { it.copy(isGenerating = true, generatedBankId = null, error = null, statusText = "正在导入题库...") }
-            repository.importFromUri(
-                name = state.bankName.ifBlank { "导入题库" },
-                uri = uri,
-                strategy = com.zzy.quizforge.util.document.ImportRuntimeConfig.currentStrategy,
-            ).catch { error: Throwable ->
-                _uiState.update { it.copy(isGenerating = false, error = error.message ?: "导入失败", statusText = "导入失败") }
-            }.collect { progress ->
-                when (progress) {
-                    is ImportProgress.Log -> _uiState.update { it.copy(statusText = progress.text.trim().ifBlank { it.statusText }) }
-                    is ImportProgress.Segment -> _uiState.update { it.copy(statusText = "修复 ${progress.current}/${progress.total}...", repairProgress = "已入库 ${progress.generatedSoFar}") }
-                    is ImportProgress.SegmentDone -> _uiState.update { it.copy(statusText = "修复 ${progress.current}/${progress.total}", repairProgress = "已入库 ${progress.generatedSoFar}") }
-                    is ImportProgress.Done -> _uiState.update { it.copy(isGenerating = false, generatedBankId = progress.bankId, generatedCount = progress.count, localCount = progress.localCount, apiCount = progress.apiCount, statusText = progress.message) }
-                    is ImportProgress.Error -> _uiState.update { it.copy(isGenerating = false, error = progress.message, statusText = "导入失败") }
+        launchImportJob { operation ->
+            try {
+                val prepared = repository.prepareImport(uri, displayName, mode)
+                if (!isCurrentOperation(operation)) {
+                    repository.discardImport(prepared)
+                    return@launchImportJob
+                }
+                val result = prepared.standardPreflight
+                updateIfCurrent(operation) {
+                    it.copy(
+                        prepared = prepared,
+                        recognition = result,
+                        isReading = false,
+                        statusText = if (mode == ImportMode.STANDARD) {
+                            result!!.summaryText()
+                        } else {
+                            "已提取 ${prepared.sourceBlocks.count { source -> source.isNonEmpty }} 段、" +
+                                "${prepared.imageCount} 张图片、${prepared.tableCount} 个表格；确认后才会调用 API"
+                        },
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                updateIfCurrent(operation) {
+                    it.copy(
+                        isReading = false,
+                        error = error.message ?: "读取 Word 失败",
+                        statusText = "文档读取失败",
+                    )
                 }
             }
         }
     }
 
-    fun generate() {
+    fun recognizeSmart() {
         val state = _uiState.value
-        if (!state.canGenerate) return
-        val documentContent = state.documentContent ?: return
-
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isGenerating = true,
-                    generatedBankId = null,
-                    error = null,
-                    statusText = "正在本地识别原题...",
-                    localCount = 0,
-                    apiCount = 0,
-                    skippedCount = 0,
-                    repairProgress = "",
-                )
-            }
-
-            repository.generateQuizBank(
-                name = state.bankName.ifBlank { "导入题库" },
-                documentContent = documentContent,
-            ).collect { progress ->
-                when (progress) {
-                    is ImportProgress.Log -> _uiState.update {
-                        it.copy(statusText = progress.text.trim().ifBlank { it.statusText })
-                    }
-                    is ImportProgress.Segment -> _uiState.update {
+        val prepared = state.prepared ?: return
+        if (!state.canRecognizeSmart) return
+        _uiState.update {
+            it.copy(
+                isRecognizing = true,
+                error = null,
+                statusText = "正在智能识别完整文档…",
+                progressCurrent = 0,
+                progressTotal = 0,
+                ignoredFailuresConfirmed = false,
+            )
+        }
+        launchImportJob { operation ->
+            try {
+                val result = repository.recognizeSmart(prepared) { progress ->
+                    updateIfCurrent(operation) {
                         it.copy(
-                            statusText = "API 修复第 ${progress.current}/${progress.total} 段...",
-                            repairProgress = "已入库 ${progress.generatedSoFar} 道",
-                        )
-                    }
-                    is ImportProgress.SegmentDone -> _uiState.update {
-                        val accepted = if (progress.generatedInSegment > 0) "✓ 通过" else "✗ 跳过"
-                        it.copy(
-                            statusText = "API 修复第 ${progress.current}/${progress.total} 段 $accepted",
-                            repairProgress = "已入库 ${progress.generatedSoFar} 道",
-                        )
-                    }
-                    is ImportProgress.Done -> _uiState.update {
-                        it.copy(
-                            isGenerating = false,
-                            generatedBankId = progress.bankId,
-                            generatedCount = progress.count,
-                            localCount = progress.localCount,
-                            apiCount = progress.apiCount,
-                            skippedCount = progress.skipped,
-                            statusText = progress.message,
-                            repairProgress = "",
-                        )
-                    }
-                    is ImportProgress.Error -> _uiState.update {
-                        it.copy(
-                            isGenerating = false,
-                            error = progress.message,
-                            statusText = "生成失败",
+                            progressCurrent = progress.current,
+                            progressTotal = progress.total,
+                            statusText = if (progress.stage == SmartRecognitionStage.BOUNDARY) {
+                                "正在识别题目边界 ${progress.current}/${progress.total}"
+                            } else {
+                                "正在结构化待确认题目 ${progress.current}/${progress.total}"
+                            },
                         )
                     }
                 }
+                updateIfCurrent(operation) {
+                    it.copy(
+                        recognition = result,
+                        isRecognizing = false,
+                        ignoredFailuresConfirmed = false,
+                        statusText = result.summaryText(),
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                updateIfCurrent(operation) {
+                    it.copy(
+                        isRecognizing = false,
+                        error = error.message ?: "智能识别失败",
+                        statusText = "智能识别失败；原文仍保留在当前任务中",
+                    )
+                }
             }
+        }
+    }
+
+    fun retryFailedFragment(record: ImportReportRecord) {
+        val state = _uiState.value
+        val prepared = state.prepared ?: return
+        val previous = state.recognition ?: return
+        if (
+            state.mode != ImportMode.SMART || state.isBusy || state.generatedBankId != null ||
+            record.sourceIds.isEmpty() ||
+            (record.status != SourceLedgerStatus.REJECTED_QUESTION &&
+                record.status != SourceLedgerStatus.UNSUPPORTED_CONTENT)
+        ) return
+        val previousAccepted = previous.report.acceptedQuestionCount
+        _uiState.update {
+            it.copy(
+                isRecognizing = true,
+                error = null,
+                statusText = "正在重新识别所选失败片段…",
+                progressCurrent = 0,
+                progressTotal = 0,
+                ignoredFailuresConfirmed = false,
+            )
+        }
+        launchImportJob { operation ->
+            try {
+                val result = repository.retrySmartRecord(prepared, previous, record) { progress ->
+                    updateIfCurrent(operation) {
+                        it.copy(
+                            progressCurrent = progress.current,
+                            progressTotal = progress.total,
+                            statusText = if (progress.stage == SmartRecognitionStage.BOUNDARY) {
+                                "正在重新判断片段边界 ${progress.current}/${progress.total}"
+                            } else {
+                                "正在重新结构化片段 ${progress.current}/${progress.total}"
+                            },
+                        )
+                    }
+                }
+                val added = result.report.acceptedQuestionCount - previousAccepted
+                updateIfCurrent(operation) {
+                    it.copy(
+                        recognition = result,
+                        isRecognizing = false,
+                        ignoredFailuresConfirmed = false,
+                        statusText = if (added > 0) {
+                            "片段重试成功，新增识别 $added 道；${result.summaryText()}"
+                        } else {
+                            "片段重试完成，但仍无法确认；可查看更新后的失败原因"
+                        },
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                updateIfCurrent(operation) {
+                    it.copy(
+                        isRecognizing = false,
+                        error = error.message ?: "片段重试失败",
+                        statusText = "片段重试失败；已有成功内容未受影响",
+                    )
+                }
+            }
+        }
+    }
+
+    fun commit() {
+        val state = _uiState.value
+        val prepared = state.prepared ?: return
+        val recognition = state.recognition ?: return
+        if (!state.canCommit) return
+        _uiState.update { it.copy(isCommitting = true, error = null, statusText = "正在创建题库并保存图片…") }
+        launchImportJob { operation ->
+            try {
+                val bankId = repository.commitPreparedImport(prepared, recognition, state.bankName)
+                updateIfCurrent(operation) {
+                    it.copy(
+                        isCommitting = false,
+                        generatedBankId = bankId,
+                        prepared = null,
+                        statusText = "题库已创建：${recognition.questions.size} 道",
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                updateIfCurrent(operation) {
+                    it.copy(
+                        isCommitting = false,
+                        error = error.message ?: "创建题库失败",
+                        statusText = "创建失败，临时文件已清理",
+                        prepared = null,
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelCurrentImport() {
+        val current = _uiState.value
+        if (current.isCommitting) return
+        operationGeneration++
+        activeJob?.cancel()
+        activeJob = null
+        current.prepared?.let(repository::discardImport)
+        val mode = current.mode
+        _uiState.value = ImportUiState(
+            mode = mode,
+            apiConfigured = mode == ImportMode.SMART && repository.hasApiKey(),
+            statusText = "已取消本次导入",
+        )
+    }
+
+    override fun onCleared() {
+        val current = _uiState.value
+        operationGeneration++
+        activeJob?.cancel()
+        if (!current.isCommitting) current.prepared?.let(repository::discardImport)
+        super.onCleared()
+    }
+
+    private fun launchImportJob(block: suspend (Long) -> Unit) {
+        val operation = ++operationGeneration
+        val job = viewModelScope.launch { block(operation) }
+        activeJob = job
+        job.invokeOnCompletion {
+            if (activeJob === job) activeJob = null
+        }
+    }
+
+    private fun isCurrentOperation(operation: Long): Boolean = operation == operationGeneration
+
+    private fun updateIfCurrent(operation: Long, transform: (ImportUiState) -> ImportUiState) {
+        if (isCurrentOperation(operation)) _uiState.update(transform)
+    }
+
+    private fun ImportRecognitionResult.summaryText(): String {
+        val report = report
+        return if (report.hasUncertainContent) {
+            "成功识别 ${report.acceptedQuestionCount} 道，另有 ${report.rejectedQuestionCount} 段无法确认；请查看导入报告"
+        } else {
+            "预检完成：成功识别 ${report.acceptedQuestionCount} 道"
         }
     }
 }

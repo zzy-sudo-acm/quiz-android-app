@@ -1,5 +1,6 @@
 package com.zzy.quizforge.ui.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,6 +36,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,6 +47,7 @@ import com.zzy.quizforge.ui.components.SurfaceCard
 import com.zzy.quizforge.ui.theme.ErrorRed
 import com.zzy.quizforge.ui.theme.TerminalBackground
 import com.zzy.quizforge.ui.theme.TextMuted
+import com.zzy.quizforge.data.remote.ModelTier
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +57,8 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
+    val leaveScreen = { if (!state.isClearing) onBack() }
+    BackHandler(onBack = leaveScreen)
 
     Scaffold(
         containerColor = TerminalBackground,
@@ -60,7 +67,7 @@ fun SettingsScreen(
                 title = { Text("设置") },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = TerminalBackground),
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = leaveScreen, enabled = !state.isClearing) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
@@ -75,11 +82,10 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // ===== API Key 输入 =====
             SurfaceCard {
                 Text("DeepSeek API Key", fontWeight = FontWeight.Bold)
                 Text(
-                    "本地解析失败的题目片段会自动交给 DeepSeek 修复格式；\n兼容性验证模式下歧义题目片段也会调用 DeepSeek 辅助识别。\n不配置也能使用，但上述 AI 辅助功能将不可用。",
+                    "仅“智能识别混乱格式”需要用户自己的 API Key；标准格式导入完全离线，不读取 Key，也不会产生模型费用。",
                     color = TextMuted,
                     modifier = Modifier.padding(top = 6.dp),
                     style = MaterialTheme.typography.bodySmall,
@@ -100,36 +106,81 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .padding(top = 8.dp),
                     visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     singleLine = true,
                     label = { Text("sk-...") },
                     enabled = state.isEncrypted,
                 )
-                Button(
-                    onClick = viewModel::saveApiKey,
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 12.dp),
-                    enabled = state.isEncrypted,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(Icons.Default.Save, contentDescription = null)
-                    Text("保存")
+                    Button(
+                        onClick = viewModel::saveApiKey,
+                        modifier = Modifier.weight(1f),
+                        enabled = state.isEncrypted,
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = null)
+                        Text("保存")
+                    }
+                    OutlinedButton(
+                        onClick = viewModel::deleteApiKey,
+                        modifier = Modifier.weight(1f),
+                        enabled = state.isEncrypted && state.apiKey.isNotBlank(),
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null)
+                        Text("删除 Key")
+                    }
+                }
+                Text("模型档位", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ModelTier.entries.forEach { tier ->
+                        if (state.modelTier == tier) {
+                            Button(onClick = { viewModel.selectModelTier(tier) }, modifier = Modifier.weight(1f)) {
+                                Text(tier.label)
+                            }
+                        } else {
+                            OutlinedButton(onClick = { viewModel.selectModelTier(tier) }, modifier = Modifier.weight(1f)) {
+                                Text(tier.label)
+                            }
+                        }
+                    }
+                }
+                Text(
+                    "使用 ${state.modelTier.modelName}；" +
+                        if (state.modelTier == ModelTier.QUICK) "速度更快、费用更低。" else "适合更复杂的混乱文档。",
+                    color = TextMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                OutlinedButton(
+                    onClick = viewModel::testConnection,
+                    enabled = state.isEncrypted && state.apiKey.isNotBlank() && !state.isTestingConnection,
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                ) {
+                    Icon(Icons.Default.Wifi, contentDescription = null)
+                    Text(if (state.isTestingConnection) "正在测试…" else "测试连接（不上传题库）")
                 }
                 state.savedMessage?.let {
                     Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
                 }
             }
 
-            // ===== 新增：API 申请引导 =====
             SurfaceCard {
                 Text("如何获取 DeepSeek API Key", fontWeight = FontWeight.Bold)
                 Text(
-                    "第一次用？按下面步骤 3 分钟搞定：",
+                    "API Key 需要由你自行申请和管理：",
                     color = TextMuted,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 6.dp),
                 )
-                StepRow("1", "打开 platform.deepseek.com，手机号注册并实名")
-                StepRow("2", "登录 DeepSeek 开放平台，按平台当前流程开通 API 服务并创建 API Key")
+                StepRow("1", "打开 platform.deepseek.com，按平台提示注册并登录")
+                StepRow("2", "按平台当前流程开通 API 服务并创建 API Key")
                 StepRow("3", "复制 sk- 开头的字符串，粘贴到上方输入框")
                 StepRow("4", "API 费用以 DeepSeek 当前公开计费规则为准")
 
@@ -139,17 +190,18 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 14.dp),
                 )
                 Text(
-                    "API 费用由 DeepSeek 按其当前公开计费标准收取。\n" +
-                        "QuizForge 不收取 API 费用。",
+                    "智能识别产生的 API 费用由你的 DeepSeek 账户承担，QuizForge 不代收模型费用。",
                     color = TextMuted,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 6.dp),
                 )
                 Text(
-                    "当前版本处于解析引擎兼容性验证模式。\n" +
-                        "导入结果仍由稳定解析器生成；新解析引擎会同步进行校验。\n" +
-                        "如配置 API Key，歧义题目片段可能调用 DeepSeek 辅助识别，\n" +
-                        "并产生少量 API 费用。",
+                    "数据发送说明",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 14.dp),
+                )
+                Text(
+                    "使用智能识别时，App 会把从所选 Word 提取出的题库文字和必要结构信息分段发送给 DeepSeek；不会上传原始 DOCX 文件或图片二进制。标准格式导入不会发送任何题库内容。",
                     color = TextMuted,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 6.dp),
@@ -157,9 +209,7 @@ fun SettingsScreen(
                 Text(
                     if (state.isEncrypted) {
                         "💡 API Key 加密保存在本机，不会上传至 QuizForge 自有服务器。\n" +
-                            "调用 DeepSeek API 时，Key 会直接发送给 DeepSeek 用于认证。\n" +
-                            "AI 仅处理本地解析失败的单题片段或新解析引擎判定为歧义的题目片段，\n" +
-                            "不会主动把整篇 Word 文档发送给 DeepSeek。"
+                            "调用 API 时，Key 仅直接发送给 DeepSeek 用于认证，并已排除在系统云备份和设备迁移之外。"
                     } else {
                         "⚠ 安全存储不可用，App 不会保存 API Key。\n" +
                             "当前需要 DeepSeek 的 AI 辅助功能将不可用。"
@@ -196,8 +246,7 @@ fun SettingsScreen(
                     color = TextMuted,
                     modifier = Modifier.padding(top = 6.dp),
                 )
-                Text("导入策略：${com.zzy.quizforge.util.document.ImportRuntimeConfig.displayName}", color = TextMuted)
-                Text("GitHub: zzy-sudo-acm/quiz-app", color = TextMuted)
+                Text("GitHub: zzy-sudo-acm/quiz-android-app", color = TextMuted)
             }
         }
     }

@@ -214,9 +214,6 @@ class WiringFixTest {
     }
 
     // ═══════════════════════════════
-    // ShadowComparator null-id fallback
-    // ═══════════════════════════════
-    // ═══════════════════════════════
     // Sequential action text
     // ═══════════════════════════════
     @Test fun `sequentialActionText null index returns ShunXu`() {
@@ -229,31 +226,9 @@ class WiringFixTest {
     @Test fun `sequentialActionText mid index returns continue`() {
         assertEquals("继续 58/100", ui(seqIdx = 57, count = 100).sequentialActionText)
     }
-    @Test fun `sequentialActionText past end clamps`() {
-        assertEquals("继续 100/100", ui(seqIdx = 999, count = 100).sequentialActionText)
+    @Test fun `sequentialActionText completed progress starts over`() {
+        assertEquals("顺序", ui(seqIdx = 100, count = 100).sequentialActionText)
+        assertEquals("顺序", ui(seqIdx = 999, count = 100).sequentialActionText)
     }
 
-    // ═══════════════════════════════
-    // ImportRuntimeConfig
-    // ═══════════════════════════════
-    @Test fun `ImportRuntimeConfig currentStrategy is SHADOW`() {
-        assertEquals(ImportStrategy.SHADOW, ImportRuntimeConfig.currentStrategy)
-    }
-    @Test fun `ImportRuntimeConfig displayName is SHADOW`() {
-        assertEquals("SHADOW", ImportRuntimeConfig.displayName)
-    }
-
-    @Test fun `ShadowComparator null originalId reversed sequence`() {
-        val lq = listOf(
-            com.zzy.quizforge.domain.model.QuizQuestion(originalId = null, type = QuestionType.SINGLE, question = "Q1", options = emptyList(), answer = listOf("A")),
-            com.zzy.quizforge.domain.model.QuizQuestion(originalId = null, type = QuestionType.SINGLE, question = "Q2", options = emptyList(), answer = listOf("A")),
-        )
-        val nq = listOf(
-            com.zzy.quizforge.domain.model.QuizQuestion(originalId = null, type = QuestionType.SINGLE, question = "Q2", options = emptyList(), answer = listOf("A")),
-            com.zzy.quizforge.domain.model.QuizQuestion(originalId = null, type = QuestionType.SINGLE, question = "Q1", options = emptyList(), answer = listOf("A")),
-        )
-        val nr = NewPipelineResult(nq, 2, 0, 0, 0, 0, 0, 0, emptyList(), emptyList())
-        val cmp = ShadowComparator.compare(lq, nr)
-        assertFalse("Reversed order with null ids must not match", cmp.orderMatch)
-    }
 }

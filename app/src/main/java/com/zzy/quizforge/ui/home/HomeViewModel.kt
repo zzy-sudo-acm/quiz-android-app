@@ -30,8 +30,8 @@ data class QuizBankSummaryUi(
         get() {
             if (questionCount <= 0) return "顺序"
             val index = sequentialProgressIndex ?: 0
-            if (index <= 0) return "顺序"
-            val position = (index + 1).coerceIn(1, questionCount)
+            if (index <= 0 || index >= questionCount) return "顺序"
+            val position = index + 1
             return "继续 $position/$questionCount"
         }
 }

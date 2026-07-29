@@ -148,7 +148,7 @@ private fun BankCard(
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = bank.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text(text = "${bank.questionCount} 题 · 正确率 ${bank.accuracyText} · 错题 ${bank.wrongCount}", color = TextMuted, modifier = Modifier.padding(top = 4.dp))
+                Text(text = "${bank.questionCount} 题 · 掌握率 ${bank.accuracyText} · 错题 ${bank.wrongCount}", color = TextMuted, modifier = Modifier.padding(top = 4.dp))
                 Text(text = bank.lastPracticedAt?.let { "最近练习 ${formatDate(it)}" } ?: "还没有练习记录", color = TextMuted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
             }
             IconButton(onClick = { menuExpanded = true }) { Icon(Icons.Default.MoreVert, contentDescription = "更多", tint = TextMuted) }

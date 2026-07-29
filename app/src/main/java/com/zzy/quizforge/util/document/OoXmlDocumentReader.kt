@@ -69,6 +69,8 @@ class OoXmlDocumentReader(
         val (declaredImageRelIds, resolvableImageRels) = parseImageRelationships(relsXml, warnings)
         val numberingDefinitions = parseNumberingDefinitions(numberingXml)
 
+        detectUnsupportedContent(documentXml, warnings)
+
         val relIdToMediaId = mutableMapOf<String, String>()
         val media = buildMediaList(entries, resolvableImageRels, mediaDir, warnings, relIdToMediaId)
 
@@ -147,8 +149,11 @@ class OoXmlDocumentReader(
                             pPrDepth++
                         }
                         inPPr -> pPrDepth++
+                        name == "txbxContent" -> skipSubtree(parser, "txbxContent")
+                        name == "object" -> skipSubtree(parser, "object")
                         name == "t" -> content += TextContent(readTextContent(parser))
                         name == "br" || name == "cr" -> content += LineBreakContent
+                        name == "tab" -> content += TextContent("\t")
                         name == "blip" -> {
                             val relId = attributeByLocalName(parser, "embed")
                                 ?: attributeByLocalName(parser, "link")
@@ -183,6 +188,72 @@ class OoXmlDocumentReader(
 
         val numbering = if (numId != null && level != null) NumberingRef(numId, level) else null
         return ParagraphBlock(id, order, numbering, mergeAdjacentText(content))
+    }
+
+    private fun skipSubtree(parser: XmlPullParser, localName: String) {
+        var depth = 1
+        while (depth > 0) {
+            val event = parser.next()
+            if (event == XmlPullParser.END_DOCUMENT) return
+            val name = parser.name?.substringAfter(':')
+            if (event == XmlPullParser.START_TAG && name == localName) depth++
+            if (event == XmlPullParser.END_TAG && name == localName) depth--
+        }
+    }
+
+    private fun detectUnsupportedContent(xml: String, warnings: MutableList<DocumentWarning>) {
+        addUnsupportedContainers(xml, "txbxContent", "文本框内容暂不支持", warnings)
+        addUnsupportedContainers(xml, "object", "Word 嵌入对象暂不支持", warnings)
+        addUnsupportedTags(xml, "altChunk", "altChunk 外部内容暂不支持", warnings)
+        addUnsupportedTags(xml, "imagedata", "VML 图片对象暂不支持，请转换为 PNG/JPEG", warnings)
+    }
+
+    private fun addUnsupportedContainers(
+        xml: String,
+        localName: String,
+        reason: String,
+        warnings: MutableList<DocumentWarning>,
+    ) {
+        val prefix = "(?:[A-Za-z_][\\w.-]*:)?"
+        val regex = Regex(
+            """<$prefix${Regex.escape(localName)}\b[^>]*>.*?</$prefix${Regex.escape(localName)}\s*>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        )
+        regex.findAll(xml).forEach { match ->
+            warnings += unsupportedWarning(reason, extractVisibleXmlText(match.value))
+        }
+    }
+
+    private fun addUnsupportedTags(
+        xml: String,
+        localName: String,
+        reason: String,
+        warnings: MutableList<DocumentWarning>,
+    ) {
+        val prefix = "(?:[A-Za-z_][\\w.-]*:)?"
+        Regex("""<$prefix${Regex.escape(localName)}\b[^>]*?/?>""", RegexOption.IGNORE_CASE)
+            .findAll(xml)
+            .forEach { match -> warnings += unsupportedWarning(reason, extractVisibleXmlText(match.value)) }
+    }
+
+    private fun unsupportedWarning(reason: String, rawText: String): DocumentWarning = DocumentWarning(
+        DocumentWarningLevel.WARN,
+        "[UNSUPPORTED] $reason\n[RAW] ${rawText.ifBlank { "（无法提取可见文字；原结构位于 word/document.xml）" }}",
+    )
+
+    private fun extractVisibleXmlText(xml: String): String {
+        val prefix = "(?:[A-Za-z_][\\w.-]*:)?"
+        return Regex(
+            """<$prefix(?:t|instrText)\b[^>]*>(.*?)</$prefix(?:t|instrText)\s*>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        ).findAll(xml).joinToString("") { match ->
+            match.groupValues[1]
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&amp;", "&")
+        }.trim()
     }
 
     private fun readTextContent(parser: XmlPullParser): String {
@@ -327,7 +398,10 @@ class OoXmlDocumentReader(
         val parser = createParser(StringReader(xml))
         val abstractNums = mutableMapOf<String, MutableMap<Int, NumberingLevel>>()
         val numToAbstract = mutableMapOf<String, String>()
+        val startOverrides = mutableMapOf<String, MutableMap<Int, Int>>()
         var currentAbsId: String? = null
+        var currentNumId: String? = null
+        var currentOverrideLevel: Int? = null
         var level: Int? = null
         var numFmt: String? = null
         var lvlText: String? = null
@@ -348,18 +422,15 @@ class OoXmlDocumentReader(
                         "lvlText" -> lvlText = attributeByLocalName(parser, "val")
                         "start" -> startVal = attributeByLocalName(parser, "val")?.toIntOrNull()
                         "num" -> {
-                            val nid = attributeByLocalName(parser, "numId")
-                            if (nid != null) {
-                                var inner = parser.next()
-                                while (inner != XmlPullParser.END_DOCUMENT) {
-                                    if (inner == XmlPullParser.START_TAG && parser.name?.substringAfter(':') == "abstractNumId") {
-                                        val aid = attributeByLocalName(parser, "val")
-                                        if (aid != null) numToAbstract[nid] = aid
-                                        break
-                                    }
-                                    if (inner == XmlPullParser.END_TAG && parser.name?.substringAfter(':') == "num") break
-                                    inner = parser.next()
-                                }
+                            currentNumId = attributeByLocalName(parser, "numId")
+                        }
+                        "abstractNumId" -> if (currentNumId != null) {
+                            attributeByLocalName(parser, "val")?.let { numToAbstract[currentNumId!!] = it }
+                        }
+                        "lvlOverride" -> currentOverrideLevel = attributeByLocalName(parser, "ilvl")?.toIntOrNull() ?: 0
+                        "startOverride" -> if (currentNumId != null && currentOverrideLevel != null) {
+                            attributeByLocalName(parser, "val")?.toIntOrNull()?.let { value ->
+                                startOverrides.getOrPut(currentNumId!!) { mutableMapOf() }[currentOverrideLevel!!] = value
                             }
                         }
                     }
@@ -367,6 +438,8 @@ class OoXmlDocumentReader(
                 XmlPullParser.END_TAG -> {
                     when (name) {
                         "abstractNum" -> currentAbsId = null
+                        "num" -> currentNumId = null
+                        "lvlOverride" -> currentOverrideLevel = null
                         "lvl" -> {
                             if (currentAbsId != null && level != null)
                                 abstractNums.getOrPut(currentAbsId) { mutableMapOf() }[level] =
@@ -381,7 +454,11 @@ class OoXmlDocumentReader(
 
         return numToAbstract.mapNotNull { (numId, absId) ->
             val levels = abstractNums[absId] ?: return@mapNotNull null
-            numId to NumberingDefinition(numId, absId, levels)
+            val overrides = startOverrides[numId].orEmpty()
+            val resolved = levels.mapValues { (levelIndex, definition) ->
+                overrides[levelIndex]?.let { definition.copy(start = it) } ?: definition
+            }
+            numId to NumberingDefinition(numId, absId, resolved)
         }.toMap()
     }
 
@@ -453,6 +530,9 @@ class OoXmlDocumentReader(
         "jpg", "jpeg" -> "image/jpeg"
         "gif" -> "image/gif"
         "bmp" -> "image/bmp"
+        "webp" -> "image/webp"
+        "emf" -> "image/emf"
+        "wmf" -> "image/wmf"
         else -> "application/octet-stream"
     }
 }

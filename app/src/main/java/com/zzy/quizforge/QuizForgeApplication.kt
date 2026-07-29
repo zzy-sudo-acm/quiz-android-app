@@ -1,6 +1,7 @@
 package com.zzy.quizforge
 
 import android.app.Application
+import android.util.Log
 import com.zzy.quizforge.data.local.AppDatabase
 import com.zzy.quizforge.data.remote.DeepSeekApi
 import com.zzy.quizforge.data.repository.ImportRepository
@@ -11,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 class QuizForgeApplication : Application() {
@@ -52,7 +54,12 @@ class QuizForgeApplication : Application() {
             settingsStore = settingsStore,
         )
 
+        // Snapshot before the UI can create a new task. Background cleanup therefore cannot
+        // remove an import started in this process, even if the user opens the screen immediately.
+        val staleImportTaskNames = File(filesDir, "import-temp").listFiles().orEmpty().map { it.name }
         appScope.launch {
+            runCatching { quizRepository.clearStaleImportTasks(staleImportTaskNames) }
+                .onFailure { Log.w("QuizForgeApplication", "上次遗留的导入临时目录未能完全清理", it) }
             quizRepository.seedDefaultBankIfNeeded()
         }
     }

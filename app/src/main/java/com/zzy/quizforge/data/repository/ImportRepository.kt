@@ -3,26 +3,29 @@ package com.zzy.quizforge.data.repository
 import android.content.Context
 import android.net.Uri
 import com.zzy.quizforge.data.remote.DeepSeekApi
+import com.zzy.quizforge.data.remote.DeepSeekSmartImportClient
 import com.zzy.quizforge.domain.model.QuizQuestion
-import com.zzy.quizforge.util.DocumentContent
-import com.zzy.quizforge.util.DocxParser
-import com.zzy.quizforge.util.FailedBlock
-import com.zzy.quizforge.util.ImportedImage
-import com.zzy.quizforge.util.JsonValidator
-import com.zzy.quizforge.util.OriginalQuestionParser
-import com.zzy.quizforge.util.SlotAssembler
 import com.zzy.quizforge.util.document.DocxArchiveLoader
-import com.zzy.quizforge.util.document.DeepSeekStructureLabelClient
-import com.zzy.quizforge.util.document.ImportStrategy
-import com.zzy.quizforge.util.document.LossyPolicy
-import com.zzy.quizforge.util.document.NewImportPipeline
-import com.zzy.quizforge.util.document.ShadowComparator
+import com.zzy.quizforge.util.document.ImportMode
+import com.zzy.quizforge.util.document.ImportRecognitionResult
+import com.zzy.quizforge.util.document.ImportReportRecord
+import com.zzy.quizforge.util.document.OoXmlDocumentReader
+import com.zzy.quizforge.util.document.PreparedImport
+import com.zzy.quizforge.util.document.SmartImportPipeline
+import com.zzy.quizforge.util.document.SmartPipelineProgress
+import com.zzy.quizforge.util.document.SmartRequestCache
+import com.zzy.quizforge.util.document.SourceBlockExtractor
+import com.zzy.quizforge.util.document.StandardFormatParser
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
 import java.io.File
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.util.UUID
 
 class ImportRepository(
     context: Context,
@@ -30,268 +33,180 @@ class ImportRepository(
     private val quizRepository: QuizRepository,
     private val settingsStore: SettingsStore,
 ) {
-    private val docxParser = DocxParser(context)
     private val appContext = context.applicationContext
-
-    fun extractDocx(uri: Uri): DocumentContent = docxParser.extractDocument(uri)
+    private val importMutex = Mutex()
+    private val documentReader = OoXmlDocumentReader()
+    private val standardParser = StandardFormatParser()
+    private val smartClient = DeepSeekSmartImportClient(api) { settingsStore.getModelTier().modelName }
+    private val smartCaches = mutableMapOf<String, SmartRequestCache>()
+    private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
-     * Strategy-based import via Uri (supports SHADOW, DOCUMENT_IR).
-     * LEGACY strategy delegates to [generateQuizBank].
+     * Reads a DOCX exactly once into an import task. Standard preflight is performed immediately
+     * and never reads the API key; smart preparation only extracts document structure.
      */
-    fun importFromUri(
-        name: String,
-        uri: Uri,
-        strategy: ImportStrategy = ImportStrategy.LEGACY,
-    ): Flow<ImportProgress> = flow {
-        val mediaDir = File(appContext.filesDir, "docx-images-ir")
-        when (strategy) {
-            ImportStrategy.LEGACY -> {
-                val dc = extractDocx(uri)
-                generateQuizBank(name, dc).collect { emit(it) }
-            }
-            ImportStrategy.DOCUMENT_IR -> {
+    suspend fun prepareImport(uri: Uri, fileName: String, mode: ImportMode): PreparedImport =
+        importMutex.withLock {
+            val taskId = UUID.randomUUID().toString()
+            val tempDir = File(appContext.filesDir, "import-temp/$taskId")
+            try {
+                withContext(Dispatchers.IO) {
+                check(tempDir.mkdirs() || tempDir.isDirectory) { "无法创建导入临时目录" }
                 val entries = DocxArchiveLoader.load(appContext.contentResolver, uri)
-                val client = DeepSeekStructureLabelClient(api)
-                val pipeline = NewImportPipeline(client, LossyPolicy.STRICT)
-                val apiKey = settingsStore.getApiKey()
-                val result = pipeline.execute(entries, apiKey, mediaDir)
-
-                if (result.questions.isEmpty()) {
-                    emit(ImportProgress.Error("Document IR pipeline 未生成任何有效题目"))
-                    return@flow
+                val document = documentReader.read(entries, File(tempDir, "images"))
+                val sources = SourceBlockExtractor.extract(document)
+                require(sources.any { it.isNonEmpty }) { "Word 文档没有可识别的非空内容" }
+                    val standard = if (mode == ImportMode.STANDARD) {
+                        val result = standardParser.parse(fileName, sources)
+                        val finalized = result.copy(
+                            report = result.report.copy(
+                                warnings = (document.warnings.map { it.message } + result.report.warnings).distinct(),
+                            ),
+                        )
+                        quizRepository.saveImportReport(bankId = null, report = finalized.report)
+                        finalized
+                    } else null
+                PreparedImport(taskId, fileName, mode, tempDir, document, sources, standard)
                 }
-                val bankId = quizRepository.createBank(name, result.questions)
-                val msg = "新流水线: ${result.questions.size}题"
-                emit(ImportProgress.Done(bankId, result.questions.size, message = msg))
-            }
-            ImportStrategy.SHADOW -> {
-                // Run legacy pipeline as user-visible result — hold Done until shadow finishes
-                val dc = extractDocx(uri)
-                var legacyDone: ImportProgress.Done? = null
-                generateQuizBank(name, dc).collect { progress ->
-                    when (progress) {
-                        is ImportProgress.Done -> legacyDone = progress
-                        else -> emit(progress)
-                    }
-                }
-                if (legacyDone == null) {
-                    emit(ImportProgress.Error("旧流水线未生成任何题目"))
-                    return@flow
-                }
-
-                emit(ImportProgress.Log("> 题库已解析，正在验证新解析引擎...\n", 0))
-
-                val shadowDir = File(appContext.cacheDir, "quizforge-shadow-${System.nanoTime()}")
-                runCatching {
-                    val entries = DocxArchiveLoader.load(appContext.contentResolver, uri)
-                    val client = DeepSeekStructureLabelClient(api)
-                    val pipeline = NewImportPipeline(client, LossyPolicy.STRICT)
-                    val apiKey = settingsStore.getApiKey()
-                    val newResult = pipeline.execute(entries, apiKey, shadowDir)
-                    val legacyQuestions = quizRepository.getQuestions(legacyDone.bankId, com.zzy.quizforge.domain.model.QuizMode.SEQUENTIAL)
-                    val cmp = ShadowComparator.compare(legacyQuestions, newResult)
-                    android.util.Log.d("ShadowImport",
-                        "L=${cmp.legacyCount} N=${cmp.newCount} orderMatch=${cmp.orderMatch} idMatch=${cmp.idSequenceMatch} " +
-                        "idMismatch=${cmp.idMismatches.size} stemMismatch=${cmp.stemMismatches.size} " +
-                        "ansMismatch=${cmp.answerMismatches.size} optMismatch=${cmp.optionKeyMismatches.size} " +
-                        "imgMismatch=${cmp.imagePresenceMismatches.size} newRejected=${cmp.newRejectedCount} " +
-                        "unassigned=${cmp.newUnassignedCount} lossy=${cmp.lossyCount}")
-                }.onFailure { e ->
-                    android.util.Log.w("ShadowImport", "Shadow comparison failed: ${e.message}")
-                }
-                shadowDir.deleteRecursively()
-
-                emit(legacyDone)
+            } catch (error: Throwable) {
+                withContext(NonCancellable + Dispatchers.IO) { tempDir.deleteRecursively() }
+                throw error
             }
         }
-    }.catch { error ->
-        emit(ImportProgress.Error(error.message ?: "导入失败"))
-    }.flowOn(Dispatchers.IO)
+
+    /** User-confirmed smart recognition. No call is made from [prepareImport]. */
+    suspend fun recognizeSmart(
+        prepared: PreparedImport,
+        onProgress: (SmartPipelineProgress) -> Unit = {},
+    ): ImportRecognitionResult = importMutex.withLock {
+        require(prepared.mode == ImportMode.SMART) { "当前任务不是智能识别模式" }
+        require(prepared.tempDir.isDirectory) { "导入任务已取消或过期" }
+        val key = settingsStore.getApiKey()
+        val cache = smartCaches.getOrPut(prepared.taskId) { SmartRequestCache() }
+        val result = SmartImportPipeline(smartClient, cache).recognize(
+            fileName = prepared.fileName,
+            sourceBlocks = prepared.sourceBlocks,
+            apiKey = key,
+            onProgress = onProgress,
+        ).let { result ->
+            result.copy(
+                report = result.report.copy(
+                    warnings = (prepared.document.warnings.map { it.message } + result.report.warnings).distinct(),
+                ),
+            )
+        }
+        quizRepository.saveImportReport(bankId = null, report = result.report)
+        result
+    }
+
+    /** Retries only the selected failed source fragment and merges it into the full report. */
+    suspend fun retrySmartRecord(
+        prepared: PreparedImport,
+        previous: ImportRecognitionResult,
+        failedRecord: ImportReportRecord,
+        onProgress: (SmartPipelineProgress) -> Unit = {},
+    ): ImportRecognitionResult = importMutex.withLock {
+        require(prepared.mode == ImportMode.SMART) { "当前任务不是智能识别模式" }
+        require(prepared.tempDir.isDirectory) { "导入任务已取消或过期" }
+        val key = settingsStore.getApiKey()
+        val cache = smartCaches.getOrPut(prepared.taskId) { SmartRequestCache() }
+        val result = SmartImportPipeline(smartClient, cache).retryFailedRecord(
+            fileName = prepared.fileName,
+            sourceBlocks = prepared.sourceBlocks,
+            previous = previous,
+            failedRecord = failedRecord,
+            apiKey = key,
+            onProgress = onProgress,
+        ).let { result ->
+            result.copy(
+                report = result.report.copy(
+                    warnings = (prepared.document.warnings.map { it.message } + result.report.warnings).distinct(),
+                ),
+            )
+        }
+        quizRepository.saveImportReport(bankId = null, report = result.report)
+        result
+    }
 
     /**
-     * 导入流程：
-     *  1. 本地 OriginalQuestionParser 解析整个 Word 文本
-     *  2. 解析成功的题目直接入库（主流程）
-     *  3. failedBlocks 逐段交给 DeepSeek API 修复格式（兜底）
-     *     - 每次只发送 1 段，绝不发送整篇文档
-     *     - API 不允许新增题目、不允许改写
-     *     - 返回严格校验，失败一律跳过
-     *  4. 上报本地识别 / API 修复 / 跳过段数
+     * Commits an already computed preview. Images are moved only after the user confirms creation;
+     * failures roll back the bank and remove the temporary directory.
      */
-    fun generateQuizBank(
-        name: String,
-        documentContent: DocumentContent,
-    ): Flow<ImportProgress> = flow {
-        require(documentContent.text.isNotBlank()) { "文档内容为空" }
-
-        emit(ImportProgress.Log("> 正在本地识别 Word 原题...\n", 0))
-        val parsed = OriginalQuestionParser.parse(documentContent.text)
-        val localQuestions = parsed.questions.attachImportedImages(documentContent.images)
-        val failedBlocks = parsed.failedBlocks
-
-        emit(
-            ImportProgress.Log(
-                "> 本地识别 ${localQuestions.size} 道，疑似失败 ${failedBlocks.size} 段\n",
-                0,
-            ),
-        )
-
-        val apiQuestions = mutableListOf<QuizQuestion>()
-        var skipped = 0
-
-        if (failedBlocks.isNotEmpty()) {
-            val apiKey = settingsStore.getApiKey()
-            if (apiKey.isBlank()) {
-                emit(ImportProgress.Log("> 未配置 DeepSeek API Key，跳过 API 修复\n", 0))
-                skipped = failedBlocks.size
-            } else {
-                emit(ImportProgress.Log("> 开始逐段调用 DeepSeek API 修复格式...\n", 0))
-                failedBlocks.forEachIndexed { index, failedBlock ->
-                    val current = index + 1
-                    emit(
-                        ImportProgress.Segment(
-                            current = current,
-                            total = failedBlocks.size,
-                            generatedSoFar = localQuestions.size + apiQuestions.size,
-                        ),
-                    )
-
-                    // 超长块（>2000 字符）可能包含合并的多道题，无法安全修复，跳过并报告
-                    if (failedBlock.text.length > 2000) {
-                        skipped += 1
-                        emit(
-                            ImportProgress.Log(
-                                "  ! 第 $current 段过长（${failedBlock.text.length} 字符），疑似多题合并，跳过 AI 修复\n",
-                                0,
-                            ),
-                        )
-                        emit(
-                            ImportProgress.SegmentDone(
-                                current = current,
-                                total = failedBlocks.size,
-                                generatedInSegment = 0,
-                                generatedSoFar = localQuestions.size + apiQuestions.size,
-                            ),
-                        )
-                        return@forEachIndexed
-                    }
-
-                    val rawResponse = runCatching {
-                        api.repairBlock(apiKey, failedBlock.text)
-                    }.onFailure { error ->
-                        emit(
-                            ImportProgress.Log(
-                                "  ! 第 $current 段 API 调用失败：${error.message ?: "未知错误"}\n",
-                                0,
-                            ),
-                        )
-                    }.getOrNull()
-
-                    val repaired = rawResponse?.let { raw ->
-                        runCatching { JsonValidator.parseRepairedQuestion(raw) }.getOrNull()
-                    }
-
-                    if (repaired != null) {
-                        // 回填原始位置（1-based，与 OriginalQuestionParser 一致）
-                        val positioned = repaired.copy(originalId = failedBlock.originalIndex + 1)
-                        val withImages = listOf(positioned).attachImportedImages(documentContent.images)
-                        apiQuestions += withImages.first()
-                        emit(
-                            ImportProgress.SegmentDone(
-                                current = current,
-                                total = failedBlocks.size,
-                                generatedInSegment = 1,
-                                generatedSoFar = localQuestions.size + apiQuestions.size,
-                            ),
-                        )
-                    } else {
-                        skipped += 1
-                        emit(
-                            ImportProgress.SegmentDone(
-                                current = current,
-                                total = failedBlocks.size,
-                                generatedInSegment = 0,
-                                generatedSoFar = localQuestions.size + apiQuestions.size,
-                            ),
-                        )
-                    }
+    suspend fun commitPreparedImport(
+        prepared: PreparedImport,
+        recognition: ImportRecognitionResult,
+        bankName: String,
+    ): Long = importMutex.withLock {
+        require(recognition.questions.isNotEmpty()) { "没有可创建的有效题目" }
+        require(prepared.tempDir.isDirectory) { "导入任务已取消或过期" }
+        var bankId: Long? = null
+        try {
+            val createdBankId = quizRepository.createEmptyBank(bankName)
+            bankId = createdBankId
+            val bankDir = File(appContext.filesDir, "quiz-banks/$createdBankId")
+            val destinationImages = File(bankDir, "images")
+            val sourceImages = File(prepared.tempDir, "images")
+            withContext(Dispatchers.IO) {
+                if (sourceImages.isDirectory) {
+                    check(destinationImages.mkdirs() || destinationImages.isDirectory) { "无法创建题库图片目录" }
+                    check(sourceImages.copyRecursively(destinationImages, overwrite = false)) { "题库图片复制不完整" }
                 }
             }
-        }
-
-        // 按 originalId 排序保持 DOCX 原文顺序（委托 SlotAssembler）
-        val allQuestions = SlotAssembler.assemble(parsed, apiQuestions)
-        require(allQuestions.isNotEmpty()) { "没有识别到有效原题" }
-
-        val bankId = quizRepository.createBank(name, allQuestions)
-        val message = "本地识别 ${localQuestions.size} 道，API 修复 ${apiQuestions.size} 道，跳过 $skipped 段"
-        emit(
-            ImportProgress.Done(
-                bankId = bankId,
-                count = allQuestions.size,
-                skipped = skipped,
-                message = message,
-                localCount = localQuestions.size,
-                apiCount = apiQuestions.size,
-            ),
-        )
-    }.catch { error ->
-        emit(ImportProgress.Error(error.message ?: "生成题库失败"))
-    }.flowOn(Dispatchers.IO)
-
-    private fun List<QuizQuestion>.attachImportedImages(images: List<ImportedImage>): List<QuizQuestion> {
-        if (images.isEmpty()) return this
-        return map { question ->
-            val matchedImage = images.firstOrNull { question.question.contains(it.marker) }
-            val questionImage = matchedImage?.uri
-            // 只移除实际成功绑定的那个 marker，未绑定的 marker 保留作为多图能力不足的信号
-            val cleanedQuestion = if (matchedImage != null) {
-                removeSpecificMarker(question.question, matchedImage.marker)
-            } else {
-                question.question
+            val relocated = recognition.questions.map { recognized ->
+                recognized.question.relocateImages(prepared.tempDir, destinationImages)
             }
-            question.copy(
-                imageUri = question.imageUri ?: questionImage,
-                question = cleanedQuestion,
-                options = question.options.map { option ->
-                    val matchedOptionImage = images.firstOrNull { option.text.contains(it.marker) }
-                    val optionImage = matchedOptionImage?.uri
-                    val cleanedText = if (matchedOptionImage != null) {
-                        removeSpecificMarker(option.text, matchedOptionImage.marker)
-                    } else {
-                        option.text
-                    }
-                    option.copy(imageUri = option.imageUri ?: optionImage, text = cleanedText)
-                },
-            )
+            val questionIds = quizRepository.appendQuestions(createdBankId, relocated)
+            quizRepository.saveImportReport(createdBankId, recognition.report, questionIds)
+            withContext(Dispatchers.IO) { prepared.tempDir.deleteRecursively() }
+            smartCaches.remove(prepared.taskId)
+            createdBankId
+        } catch (error: Throwable) {
+            withContext(NonCancellable) {
+                bankId?.let { runCatching { quizRepository.deleteBank(it) } }
+                withContext(Dispatchers.IO) { prepared.tempDir.deleteRecursively() }
+                runCatching { quizRepository.saveImportReport(bankId = null, report = recognition.report) }
+                smartCaches.remove(prepared.taskId)
+            }
+            throw error
         }
     }
 
-    /** 移除指定 marker 字符串（如 "[图片1]"），并清理多余空行。 */
-    private fun removeSpecificMarker(text: String, marker: String): String =
-        text.replace(marker, "")
-            .replace(Regex("""\n{3,}"""), "\n\n")
-            .trim()
-}
+    suspend fun cancelImport(prepared: PreparedImport) = withContext(NonCancellable) {
+        importMutex.withLock {
+            withContext(Dispatchers.IO) { prepared.tempDir.deleteRecursively() }
+            smartCaches.remove(prepared.taskId)
+        }
+    }
 
-sealed interface ImportProgress {
-    data class Log(val text: String, val tokenCount: Int) : ImportProgress
-    data class Segment(val current: Int, val total: Int, val generatedSoFar: Int) : ImportProgress
-    data class SegmentDone(
-        val current: Int,
-        val total: Int,
-        val generatedInSegment: Int,
-        val generatedSoFar: Int,
-    ) : ImportProgress
-    data class Done(
-        val bankId: Long,
-        val count: Int,
-        val partial: Boolean = false,
-        val skipped: Int = 0,
-        val message: String = "✓ 已生成 $count 道题",
-        val localCount: Int = 0,
-        val apiCount: Int = 0,
-    ) : ImportProgress
-    data class Error(val message: String) : ImportProgress
+    /** Lifecycle cleanup is detached from the cancelled UI job and never blocks the main thread. */
+    fun discardImport(prepared: PreparedImport) {
+        cleanupScope.launch { cancelImport(prepared) }
+    }
+
+    fun hasApiKey(): Boolean = settingsStore.getApiKey().isNotBlank()
+
+    suspend fun testModelConnection(candidateApiKey: String): Result<Unit> {
+        val key = candidateApiKey.trim()
+        if (key.isBlank()) return Result.failure(IllegalStateException("请先输入 API Key"))
+        return runCatching { api.testConnection(key, settingsStore.getModelTier().modelName); Unit }
+    }
+
+    private fun QuizQuestion.relocateImages(tempDir: File, destinationImages: File): QuizQuestion {
+        fun relocate(path: String?): String? {
+            if (path.isNullOrBlank()) return null
+            val file = File(path)
+            return if (file.absolutePath.startsWith(tempDir.absolutePath)) {
+                File(destinationImages, file.name).absolutePath
+            } else path
+        }
+        val stem = (imageUris + listOfNotNull(imageUri)).mapNotNull(::relocate).distinct()
+        return copy(
+            imageUri = stem.firstOrNull(),
+            imageUris = stem,
+            options = options.map { option ->
+                val paths = (option.imageUris + listOfNotNull(option.imageUri)).mapNotNull(::relocate).distinct()
+                option.copy(imageUri = paths.firstOrNull(), imageUris = paths)
+            },
+        )
+    }
 }

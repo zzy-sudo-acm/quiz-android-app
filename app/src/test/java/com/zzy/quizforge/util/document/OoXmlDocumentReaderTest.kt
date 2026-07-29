@@ -506,6 +506,39 @@ class OoXmlDocumentReaderTest {
         val mediaWarnings = doc.warnings.filter { it.message.contains("rId7") }
         assertEquals("Should have exactly 1 warning for rId7, got ${mediaWarnings.map { it.message }}", 1, mediaWarnings.size)
     }
+
+    @Test
+    fun `each textbox occurrence keeps its visible text in a separate source report block`() {
+        val textboxes = """
+            <w:p><w:r><w:pict><v:shape><v:textbox><w:txbxContent><w:p><w:r><w:t>文本框甲</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape></w:pict></w:r></w:p>
+            <w:p><w:r><w:pict><v:shape><v:textbox><w:txbxContent><w:p><w:r><w:t>文本框乙</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape></w:pict></w:r></w:p>
+        """.trimIndent()
+        val doc = read(DocxFixtureBuilder().documentXml(textboxes))
+
+        val unsupported = SourceBlockExtractor.extract(doc).filter { it.sourceType == SourceBlockType.UNSUPPORTED }
+        assertEquals(2, unsupported.size)
+        assertEquals(listOf("文本框甲", "文本框乙"), unsupported.map { it.rawText })
+        assertTrue(unsupported.all { it.unsupportedReason.orEmpty().contains("文本框") })
+    }
+
+    @Test
+    fun `numbering startOverride is preserved for restarted Word lists`() {
+        val numbering = """
+            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+              <w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum>
+              <w:num w:numId="9"><w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="7"/></w:lvlOverride></w:num>
+            </w:numbering>
+        """.trimIndent()
+        val doc = read(
+            DocxFixtureBuilder()
+                .numberingXml(numbering)
+                .documentXml(numberedParagraph("重启编号", numId = 9)),
+        )
+
+        val source = SourceBlockExtractor.extract(doc).single()
+        assertEquals("7.", source.numbering?.displayText)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════

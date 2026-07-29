@@ -5,6 +5,8 @@ data class QuestionOption(
     val text: String,
     val image: String? = null,
     val imageUri: String? = null,
+    /** All images owned by this option. [imageUri] is retained for old databases. */
+    val imageUris: List<String> = emptyList(),
 )
 
 data class QuizQuestion(
@@ -19,4 +21,6 @@ data class QuizQuestion(
     val knowledge: String? = null,
     val image: String? = null,
     val imageUri: String? = null,
+    /** All stem images in source order. [imageUri] remains the legacy first-image field. */
+    val imageUris: List<String> = emptyList(),
 )

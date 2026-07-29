@@ -13,4 +13,7 @@ interface AnswerRecordDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: AnswerRecordEntity)
+
+    @Query("DELETE FROM answer_records WHERE bankId = :bankId")
+    suspend fun deleteByBankId(bankId: Long)
 }

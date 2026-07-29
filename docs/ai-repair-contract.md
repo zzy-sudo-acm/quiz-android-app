@@ -1,153 +1,138 @@
-# AI 修复接口契约
+# 智能识别接口与校验契约
 
-## 概述
+> 文件名为兼容旧链接保留。当前实现不是“本地失败题块的 AI 修复”，而是独立的完整文档智能识别路径。
 
-AI 修复是题库导入流程的**兜底阶段**。仅当本地规则解析（`OriginalQuestionParser`）无法识别某个题块时，才会调用 DeepSeek API 进行格式修复。
+## 调用前提
 
-## 核心原则
+智能识别只有在以下条件同时满足时才会调用模型 API：
 
-| 原则 | 说明 |
-|------|------|
-| **AI 不负责凭空生成答案** | AI 不能编造题目、选项或答案。所有内容必须来自原文 |
-| **只修复结构异常** | 将格式错乱的题块整理为规范 JSON，不改变题目内容 |
-| **原文无答案 → `answer = null`** | 原文确实没有答案信息时，禁止推测，必须返回 null |
-| **修复失败 → 人工确认** | 校验失败的题块直接跳过，在导入结果中明确报告 |
-| **所有输出必须通过 JSON Schema 校验** | 详见下方 [JSON Schema 校验规则](#json-schema-校验规则) |
+1. 用户主动选择“智能识别混乱格式”。
+2. DOCX 已在本机读取并生成来源块。
+3. 已通过 Android 加密存储保存有效的 API Key。
+4. 用户在数据与费用说明后再次确认调用。
 
-## 接口定义
+选择文件、查看文档摘要和标准格式导入均不会触发 API。
 
-### 请求
+## API 请求
 
-```
+```http
 POST https://api.deepseek.com/chat/completions
 Authorization: Bearer <用户配置的 API Key>
 Content-Type: application/json
 ```
 
+模型由设置页档位选择：
+
+- 快速模式：`deepseek-v4-flash`
+- 高质量模式：`deepseek-v4-pro`
+
+请求为非流式、`temperature = 0`，当前响应上限为 `8192` tokens。请求内容是 `SmartModelRequest` 的 JSON 投影及约束 Prompt，包含：
+
+- 阶段（边界识别或结构化）和批次 ID
+- 每个来源块的 ID、顺序、类型、原文和字符范围
+- Word 自动编号信息
+- 表格行列坐标
+- 图片引用标识（不含图片二进制）
+- 第二阶段的候选来源和集中答案区来源
+
+不会发送原始 DOCX 压缩包、关系文件或图片二进制。图片内容可能决定答案时，报告会提示人工确认。
+
+## 长文档与覆盖规则
+
+- 每个非空来源块必须进入边界识别，不允许先用本地正则筛掉“看起来成功”的内容。
+- 长文档按估算大小切片，相邻批次保留来源块重叠。
+- 单个超长来源块按字符范围切片，并在请求中保留 `charStart`/`charEnd`。
+- 一个来源块可包含零道、一道或多道题；响应的 `questions` 必须使用数组。
+- 标题、章节说明、集中答案区、无法确认内容和不支持结构都要显式分类。
+
+## 两阶段响应
+
+### 边界识别
+
+第一阶段返回严格 JSON：
+
 ```json
 {
-  "model": "deepseek-v4-flash",
-  "stream": false,
-  "temperature": 0.0,
-  "max_tokens": 2048,
-  "messages": [
+  "questions": [
     {
-      "role": "user",
-      "content": "<修复 Prompt，包含原题纯文本>"
+      "tempId": "q1",
+      "sourceIds": ["p3", "p4"],
+      "originalQuestionNumber": 1
     }
-  ]
+  ],
+  "answerSections": [{"sourceIds": ["p100"]}],
+  "nonQuestionSourceIds": ["p1"],
+  "unsupportedSourceIds": [],
+  "unresolvedSourceIds": []
 }
 ```
 
-### 输入：failedBlock
+只有字段完整且可逐字追溯时，第一阶段才可以同时返回完整题目结构；否则只返回候选边界，交由第二阶段处理。
 
-输入是 `OriginalQuestionParser` 解析失败的**单个题块纯文本**，长度 ≤ 500 字符。
+### 结构化
 
-示例（格式异常的题块）：
-
-```
-1.下列哪一个命令可以修改设备名字为huawei? rename huawei B.sysname huawei C.do name huawei D.hostname huawei 答案：B  VRp基础
-```
-
-> 注意：选项 A/B/C/D 挤在同一行，无换行分隔，本地正则无法拆分选项标记。
-
-### 输出：修复后的 JSON
-
-#### 成功（可识别的完整题目）
+第二阶段可以一次返回多道题。每道完整题必须包含：
 
 ```json
 {
+  "tempId": "q1",
+  "sourceIds": ["p3", "p4", "p100"],
+  "originalQuestionNumber": 1,
   "type": "single",
-  "question": "下列哪一个命令可以修改设备名字为huawei?",
+  "question": "题干原文",
   "options": [
-    {"key": "A", "text": "rename huawei"},
-    {"key": "B", "text": "sysname huawei"},
-    {"key": "C", "text": "do name huawei"},
-    {"key": "D", "text": "hostname huawei"}
+    {"key": "A", "text": "选项 A 原文"},
+    {"key": "B", "text": "选项 B 原文"}
   ],
   "answer": ["B"],
-  "explanation": "",
-  "knowledge": "VRP基础"
+  "explanation": null,
+  "knowledge": null,
+  "questionSource": ["p3"],
+  "optionSources": {"A": ["p4"], "B": ["p4"]},
+  "answerSource": ["p100"],
+  "explanationSource": [],
+  "knowledgeSource": []
 }
 ```
 
-#### 无法识别（不是完整题目）
+模型不得改写题干、补造选项、根据常识纠正原题或猜答案。没有明确答案来源时应放入 `unresolvedSourceIds`，而不是伪造成功结果。
 
-```
-null
-```
+## 本地强校验
 
-> 返回字面量 `null`（纯文本，非 JSON 字符串），表示此段无法识别为一道完整题目。
+模型返回不直接入库。`SmartImportPipeline` 至少执行以下检查：
 
-### 字段说明
+1. 返回根节点必须是可解析的 JSON 对象，其中 `questions` 必须是数组并可包含多道题。
+2. 所有 `sourceId` 必须存在于本次文档。
+3. 题干、选项、解析和知识点必须能在声明的来源原文中追溯。
+4. 答案必须有 `answerSource`，且能从答案原文中解析出来。
+5. 答案 key 必须存在于选项集合；单选/判断只能有一个答案，多选至少两个答案。
+6. 题型必须是 `single`、`multiple` 或 `truefalse`。
+7. 选项 key 和内容不得重复；题干与选项组合重复的题目会被拒绝。
+8. 图片只按来源关系挂载，不允许模型猜测图片内容。
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `type` | string | 是 | `"single"` / `"multiple"` / `"truefalse"` |
-| `question` | string | 是 | 题干原文，不得改写 |
-| `options` | array | 是 | 选项列表，每项含 `key` 和 `text` |
-| `options[].key` | string | 是 | 单字母 A-H |
-| `options[].text` | string | 是 | 选项原文，不得改写 |
-| `answer` | array | 条件 | 答案 key 列表，如 `["A"]` 或 `["A","B"]`。**原文确实无答案时可省略此字段** |
-| `explanation` | string | 否 | 解析，可为空字符串 |
-| `knowledge` | string | 否 | 知识点，可为空字符串 |
+校验失败不会静默丢弃：原文、来源 ID、原因码和说明会写入导入报告。
 
-## JSON Schema 校验规则
+## 失败与重试语义
 
-`JsonValidator.parseRepairedQuestion()` 执行以下严格校验，**任一条件不满足则整题丢弃**：
+常见稳定原因码包括：
 
-```
-1. 输入不能为空
-2. 输入为字面量 "null" → 返回 null（合法跳过）
-3. 必须是可解析的 JSON 对象（自动剥离 Markdown 代码块）
-4. question 不能为空或纯空白
-5. options 不能为空，每项 text 不能为空
-6. 非判断题至少需要 2 个选项
-7. answer 不能为空（原文无答案的题目已在阶段一被过滤）
-8. answer 中每个 key 必须存在于 options 的 key 集合中
-9. 判断题必须仅有 A/B 两个选项，文本须为 对/正确/√ 与 错/错误/×
-```
+| 原因码 | 含义 |
+|---|---|
+| `API_KEY_MISSING` | 未配置可用密钥 |
+| `API_REQUEST_FAILED` | 网络、HTTP 或服务调用失败 |
+| `API_INVALID_JSON` | 响应不是约定 JSON |
+| `API_RETURNED_NULL` | 模型明确返回空结果 |
+| `API_HALLUCINATED_CONTENT` | 字段无法在来源原文中追溯 |
+| `MISSING_ANSWER` | 缺少明确答案或答案来源 |
+| `ANSWER_NOT_IN_OPTIONS` | 答案不属于选项 |
+| `DUPLICATE_QUESTION` | 识别结果重复 |
+| `SOURCE_NOT_COVERED` | 无法确认来源归属 |
 
-### 校验失败示例
+本次导入任务只缓存成功的模型响应。相同成功请求可复用以避免重复计费；失败响应不会缓存，因此重试仍会真实调用服务。报告分别记录是否使用过 API 和逻辑模型批次数；单个批次内部因 429、5xx 或网络故障发生的传输重试不重复计入该字段。
 
-| 场景 | AI 返回 | 校验结果 |
-|------|---------|----------|
-| 选项 key 不匹配 | `answer: ["X"]`，options 无 X | 失败：答案包含不存在的选项 |
-| 题干为空 | `question: ""` | 失败：题干为空 |
-| 判断题多选项 | 判断题有 4 个选项 | 失败：判断题必须仅 A/B |
-| 选项文本为空 | `{"key":"A","text":""}` | 失败：选项文本为空 |
-| 编造答案 | 原文无答案，AI 推测了答案 | 阶段一已区分：原文确无答案时 `answer = null`，校验器直接拒绝 |
+## 密钥与日志约束
 
-## 错误处理
-
-```
-API 调用异常
-    │
-    ├── 网络超时 / HTTP 非 200
-    │   └── 记录日志 "第 N 段 API 调用失败：<原因>"
-    │       └── 跳过该段
-    │
-    ├── 响应为空
-    │   └── 跳过该段
-    │
-    └── JSON 解析/校验失败
-        └── 跳过该段，不静默丢弃（计入 skippedCount）
-```
-
-用户在导入结果中可看到：
-- `本地识别 N 道`：阶段一成功的题目数
-- `API 修复 M 道`：阶段二成功的题目数
-- `跳过 K 段`：两个阶段都失败的题块数
-
-## 与阶段一（规则解析）的分工
-
-| | 阶段一：规则解析 | 阶段二：AI 修复 |
-|------|------|------|
-| **输入** | 完整 DOCX 文本 | 单个 failedBlock |
-| **方法** | 正则匹配 | LLM 理解 |
-| **速度** | 即时 | API 调用延迟 |
-| **成本** | 免费 | 消耗 API token |
-| **能力** | 结构化格式 | 非结构化/混乱格式 |
-| **安全性** | 确定性 | 需严格校验 |
-
-AI 修复仅作为规则解析的**补充**，不是替代。规则能处理的题目不经过 AI。
+- API Key 不写入普通 SharedPreferences、导入报告、应用日志或仓库文件。
+- 加密存储不可用时，设置页拒绝保存 Key，并清除旧版本可能遗留的明文值。
+- 密钥设置文件排除在云备份和设备迁移之外。
+- 连接测试只发送固定的最小消息，不包含题库文字。

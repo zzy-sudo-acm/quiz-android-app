@@ -4,6 +4,7 @@ app/build/
 local.properties
 *.iml
 .idea/
+.kotlin/
 _reference/
 *.jks
 *.keystore
@@ -23,5 +24,9 @@ _reference/
 /service-worker.js
 /style.css
 /scripts/
+!/scripts/
+/scripts/*
+!/scripts/generate_docx_fixtures.py
+!/scripts/generate_standard_template.py
 /assets/
 /*.docx

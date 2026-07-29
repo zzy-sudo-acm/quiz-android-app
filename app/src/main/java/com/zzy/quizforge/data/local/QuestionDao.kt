@@ -9,10 +9,16 @@ import com.zzy.quizforge.data.local.entity.QuestionEntity
 @Dao
 interface QuestionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(questions: List<QuestionEntity>)
+    suspend fun insertAll(questions: List<QuestionEntity>): List<Long>
 
     @Query("SELECT * FROM questions WHERE bankId = :bankId ORDER BY id ASC")
     suspend fun getQuestions(bankId: Long): List<QuestionEntity>
+
+    @Query("SELECT * FROM questions WHERE bankId != :bankId")
+    suspend fun getQuestionsExcept(bankId: Long): List<QuestionEntity>
+
+    @Query("DELETE FROM questions WHERE bankId = :bankId")
+    suspend fun deleteByBankId(bankId: Long)
 
     @Query(
         """

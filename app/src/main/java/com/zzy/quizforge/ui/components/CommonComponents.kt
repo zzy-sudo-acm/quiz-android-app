@@ -12,12 +12,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -29,14 +26,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -50,8 +47,9 @@ import com.zzy.quizforge.ui.theme.PrimaryGreen
 import com.zzy.quizforge.ui.theme.SelectedBackground
 import com.zzy.quizforge.ui.theme.SuccessBackground
 import com.zzy.quizforge.ui.theme.SuccessGreen
-import com.zzy.quizforge.ui.theme.TerminalBackground
 import com.zzy.quizforge.ui.theme.TextMuted
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SurfaceCard(
@@ -78,6 +76,7 @@ fun OptionButton(
     selected: Boolean,
     correct: Boolean,
     submitted: Boolean,
+    enabled: Boolean = !submitted,
     onClick: () -> Unit,
 ) {
     val background = when {
@@ -95,7 +94,7 @@ fun OptionButton(
 
     OutlinedButton(
         onClick = onClick,
-        enabled = !submitted,
+        enabled = enabled && !submitted,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.outlinedButtonColors(
@@ -133,6 +132,7 @@ fun OptionButton(
                 QuizImage(
                     image = option.image,
                     imageUri = option.imageUri,
+                    imageUris = option.imageUris,
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
@@ -149,18 +149,41 @@ fun OptionButton(
 fun QuizImage(
     image: String?,
     imageUri: String?,
+    imageUris: List<String> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
-    if (image.isNullOrBlank() && imageUri.isNullOrBlank()) return
+    val sources = (imageUris + listOfNotNull(imageUri)).filter(String::isNotBlank).distinct()
+    if (sources.isEmpty() && image.isNullOrBlank()) return
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (sources.isNotEmpty()) {
+            sources.forEach { source -> AsyncQuizImage(image = null, imageUri = source) }
+        } else {
+            AsyncQuizImage(image = image, imageUri = null)
+        }
+    }
+}
+
+@Composable
+private fun AsyncQuizImage(image: String?, imageUri: String?) {
     val context = LocalContext.current
-    val bitmap = remember(image, imageUri) {
-        loadBitmap(context, image = image, imageUri = imageUri)
+    val unsupported = imageUri?.substringAfterLast('.', "")?.lowercase() in setOf("emf", "wmf")
+    if (unsupported) {
+        Text(
+            text = "该图片为 EMF/WMF，Android 暂不支持显示，请在 Word 中转为 PNG 或 JPEG",
+            color = ErrorRed,
+            modifier = Modifier.fillMaxWidth().background(ErrorBackground, RoundedCornerShape(8.dp)).padding(10.dp),
+            fontWeight = FontWeight.Bold,
+        )
+        return
+    }
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, image, imageUri) {
+        value = withContext(Dispatchers.IO) { loadBitmapSampled(context, image, imageUri) }
     }
     if (bitmap != null) {
         Image(
-            bitmap = bitmap.asImageBitmap(),
+            bitmap = bitmap!!.asImageBitmap(),
             contentDescription = "题目图片",
-            modifier = modifier
+            modifier = Modifier
                 .fillMaxWidth()
                 .border(1.dp, BorderColor, RoundedCornerShape(8.dp))
                 .padding(4.dp),
@@ -170,7 +193,7 @@ fun QuizImage(
         Text(
             text = "图片加载失败",
             color = ErrorRed,
-            modifier = modifier
+            modifier = Modifier
                 .fillMaxWidth()
                 .background(ErrorBackground, RoundedCornerShape(8.dp))
                 .padding(10.dp),
@@ -179,57 +202,22 @@ fun QuizImage(
     }
 }
 
-private fun loadBitmap(
+private fun loadBitmapSampled(
     context: Context,
     image: String?,
     imageUri: String?,
 ) = runCatching {
-    when {
+    fun open() = when {
         !imageUri.isNullOrBlank() && imageUri.startsWith("content://") ->
-            context.contentResolver.openInputStream(android.net.Uri.parse(imageUri)).use {
-                BitmapFactory.decodeStream(it)
-            }
-        !imageUri.isNullOrBlank() -> BitmapFactory.decodeFile(imageUri)
-        !image.isNullOrBlank() -> {
-            val assetPath = image.removePrefix("assets/").trimStart('/')
-            context.assets.open(assetPath).use { BitmapFactory.decodeStream(it) }
-        }
+            context.contentResolver.openInputStream(android.net.Uri.parse(imageUri))
+        !imageUri.isNullOrBlank() -> java.io.File(imageUri).inputStream()
+        !image.isNullOrBlank() -> context.assets.open(image.removePrefix("assets/").trimStart('/'))
         else -> null
     }
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    open()?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    var sample = 1
+    while (bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048) sample *= 2
+    val options = BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
+    open()?.use { BitmapFactory.decodeStream(it, null, options) }
 }.getOrNull()
-
-@Composable
-fun TerminalView(
-    text: String,
-    tokenCount: Int,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = 180.dp, max = 360.dp)
-            .background(TerminalBackground, RoundedCornerShape(8.dp))
-            .border(1.dp, TextMuted.copy(alpha = 0.24f), RoundedCornerShape(8.dp))
-            .padding(12.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            Text(
-                text = text.ifBlank { "> 等待开始..." },
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-        }
-        Text(
-            text = "tokens: $tokenCount",
-            style = MaterialTheme.typography.labelSmall,
-            fontFamily = FontFamily.Monospace,
-            color = TextMuted,
-            modifier = Modifier.align(Alignment.End),
-        )
-    }
-}

@@ -111,6 +111,7 @@ private fun QuestionState(
             QuizImage(
                 image = question.image,
                 imageUri = question.imageUri,
+                imageUris = question.imageUris,
                 modifier = Modifier.padding(top = 12.dp),
             )
             question.knowledge?.takeIf { it.isNotBlank() }?.let {
@@ -129,17 +130,27 @@ private fun QuestionState(
                 selected = option.key in state.selected,
                 correct = option.key in question.answer,
                 submitted = state.submitted,
+                enabled = !state.isSubmitting,
                 onClick = { viewModel.toggleOption(option.key) },
             )
+        }
+
+        if (state.isSubmitting) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text("正在保存答案…", color = TextMuted)
+        }
+
+        state.submissionError?.let { message ->
+            Text("提交失败：$message", color = ErrorRed)
         }
 
         if (question.type.isMultipleChoice && !state.submitted) {
             Button(
                 onClick = viewModel::submit,
-                enabled = state.selected.isNotEmpty(),
+                enabled = state.selected.isNotEmpty() && !state.isSubmitting,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("确认提交")
+                Text(if (state.isSubmitting) "提交中…" else "确认提交")
             }
         }
 

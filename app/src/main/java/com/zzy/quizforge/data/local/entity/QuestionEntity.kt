@@ -1,6 +1,7 @@
 package com.zzy.quizforge.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -30,4 +31,6 @@ data class QuestionEntity(
     val knowledge: String? = null,
     val image: String? = null,
     val imageUri: String? = null,
+    @ColumnInfo(defaultValue = "'[]'")
+    val imageUrisJson: String = "[]",
 )

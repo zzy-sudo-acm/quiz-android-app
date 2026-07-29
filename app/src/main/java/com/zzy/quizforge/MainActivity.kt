@@ -98,6 +98,7 @@ private fun QuizForgeNav(app: QuizForgeApplication) {
             ImportScreen(
                 viewModel = viewModel(factory = ImportViewModelFactory(app.importRepository)),
                 onBack = { navController.popBackStack() },
+                onOpenSettings = { navController.navigate("settings") },
                 onOpenBank = { bankId ->
                     navController.navigate("quiz/$bankId/${QuizMode.SEQUENTIAL.routeValue}") {
                         popUpTo("home")
@@ -111,6 +112,7 @@ private fun QuizForgeNav(app: QuizForgeApplication) {
                     factory = SettingsViewModelFactory(
                         settingsStore = app.settingsStore,
                         quizRepository = app.quizRepository,
+                        importRepository = app.importRepository,
                     ),
                 ),
                 onBack = { navController.popBackStack() },
