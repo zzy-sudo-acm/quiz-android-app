@@ -261,7 +261,7 @@ class SmartImportPipeline(
                 )
             }
             if (direct is CandidateValidation.Accepted) {
-                acceptCandidate(direct.value, accepted, records, ledger, sourceById, apiAttempted = true)
+                acceptCandidate(direct.value, accepted, records, ledger, sourceById, apiAttempted = true, warnings = warnings)
                 warnings += direct.warnings
                 return@forEachIndexed
             }
@@ -328,9 +328,25 @@ class SmartImportPipeline(
                             ) {
                                 is CandidateValidation.Accepted -> {
                                     if (isDuplicate(validated.value, accepted)) {
-                                        rejectBoundary(item, ImportFailureReason.DUPLICATE_QUESTION, "模型重复生成同一道题", records, ledger, sourceById)
+                                        val dupIds = validated.value.provenance.sourceIds.filter(sourceById::containsKey).distinct()
+                                        val uncovered = dupIds.filter { ledger.status(it) == null }
+                                        if (uncovered.isNotEmpty()) {
+                                            ledger.mark(uncovered, SourceLedgerStatus.REJECTED_QUESTION)
+                                            records += ImportReportRecord(
+                                                sourceIds = uncovered,
+                                                originalQuestionNumber = validated.value.originalQuestionNumber,
+                                                rawText = uncovered.mapNotNull { sourceById[it]?.rawText }.joinToString("\n"),
+                                                status = SourceLedgerStatus.REJECTED_QUESTION,
+                                                reasonCode = ImportFailureReason.DUPLICATE_QUESTION,
+                                                reasonMessage = "模型重复生成同一道题；未覆盖的原文已标记",
+                                                apiAttempted = true,
+                                            )
+                                        }
+                                        warnings += "模型重复生成题目 \"${validated.value.question.question.take(40)}${
+                                            if (validated.value.question.question.length > 40) "…" else ""
+                                        }\"，已自动跳过"
                                     } else {
-                                        acceptCandidate(validated.value, accepted, records, ledger, sourceById, apiAttempted = true)
+                                        acceptCandidate(validated.value, accepted, records, ledger, sourceById, apiAttempted = true, warnings = warnings)
                                         warnings += validated.warnings
                                         acceptedFromResponse++
                                     }
@@ -798,16 +814,27 @@ class SmartImportPipeline(
         ledger: SourceLedger,
         sourceById: Map<String, ImportSourceBlock>,
         apiAttempted: Boolean,
+        warnings: MutableList<String>,
     ) {
         if (isDuplicate(value, accepted)) {
-            rejectBoundary(
-                BoundaryCandidate("duplicate", value.provenance.sourceIds, value.originalQuestionNumber, null),
-                ImportFailureReason.DUPLICATE_QUESTION,
-                "模型重复生成同一道题",
-                records,
-                ledger,
-                sourceById,
-            )
+            val duplicateSourceIds = value.provenance.sourceIds.filter(sourceById::containsKey).distinct()
+            val uncovered = duplicateSourceIds.filter { ledger.status(it) == null }
+            if (uncovered.isNotEmpty()) {
+                ledger.mark(uncovered, SourceLedgerStatus.REJECTED_QUESTION)
+                records += ImportReportRecord(
+                    sourceIds = uncovered,
+                    originalQuestionNumber = value.originalQuestionNumber,
+                    rawText = uncovered.mapNotNull { sourceById[it]?.rawText }.joinToString("\n"),
+                    status = SourceLedgerStatus.REJECTED_QUESTION,
+                    reasonCode = ImportFailureReason.DUPLICATE_QUESTION,
+                    reasonMessage = "模型重复生成同一道题；未覆盖的原文已标记",
+                    apiAttempted = apiAttempted,
+                )
+            }
+            val stemPreview = value.question.question.take(40)
+            warnings += "模型重复生成题目 \"${stemPreview}${
+                if (value.question.question.length > 40) "…" else ""
+            }\"（sourceIds=${duplicateSourceIds.joinToString(",")}），已自动跳过"
             return
         }
         val index = accepted.size
@@ -880,6 +907,7 @@ class SmartImportPipeline(
         }
         val acceptedRows = normalizedRecords.count { it.status == SourceLedgerStatus.ACCEPTED_QUESTION }
         val rejectedRows = normalizedRecords.count { it.status == SourceLedgerStatus.REJECTED_QUESTION }
+        val duplicateCount = normalizedRecords.count { it.reasonCode == ImportFailureReason.DUPLICATE_QUESTION }
         val counts = ledger.counts()
         return ImportRecognitionResult(
             accepted,
@@ -895,6 +923,7 @@ class SmartImportPipeline(
                 rejectedQuestionCount = rejectedRows,
                 nonQuestionCount = counts[SourceLedgerStatus.NON_QUESTION_CONTENT] ?: 0,
                 unsupportedCount = counts[SourceLedgerStatus.UNSUPPORTED_CONTENT] ?: 0,
+                duplicateQuestionCount = duplicateCount,
                 imageCount = sources.sumOf { it.images.size },
                 tableCount = sources.mapNotNull { it.table?.tableSourceId }.distinct().size,
                 usedApi = usedApi,
@@ -972,6 +1001,7 @@ class SmartImportPipeline(
         val ledgerCounts = ledger.counts()
         val acceptedRows = records.count { it.status == SourceLedgerStatus.ACCEPTED_QUESTION }
         val rejectedRows = records.count { it.status == SourceLedgerStatus.REJECTED_QUESTION }
+        val duplicateCount = records.count { it.reasonCode == ImportFailureReason.DUPLICATE_QUESTION }
         val report = previous.report.copy(
             finishedAt = clock(),
             totalSourceBlocks = allSources.size,
@@ -980,6 +1010,7 @@ class SmartImportPipeline(
             rejectedQuestionCount = rejectedRows,
             nonQuestionCount = ledgerCounts[SourceLedgerStatus.NON_QUESTION_CONTENT] ?: 0,
             unsupportedCount = ledgerCounts[SourceLedgerStatus.UNSUPPORTED_CONTENT] ?: 0,
+            duplicateQuestionCount = duplicateCount,
             imageCount = allSources.sumOf { it.images.size },
             tableCount = allSources.mapNotNull { it.table?.tableSourceId }.distinct().size,
             usedApi = previous.report.usedApi || retried.report.usedApi,

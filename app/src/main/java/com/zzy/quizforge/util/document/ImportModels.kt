@@ -136,6 +136,7 @@ data class ImportReport(
     val rejectedQuestionCount: Int,
     val nonQuestionCount: Int,
     val unsupportedCount: Int,
+    val duplicateQuestionCount: Int,
     val imageCount: Int,
     val tableCount: Int,
     val usedApi: Boolean,

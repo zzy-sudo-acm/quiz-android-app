@@ -226,9 +226,10 @@ fun ImportScreen(
                 SurfaceCard {
                     Text("导入报告", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        "候选 ${report.candidateQuestionCount} · 成功 ${report.acceptedQuestionCount} · " +
+                        "原文 ${report.totalSourceBlocks} 段 · 候选 ${report.candidateQuestionCount} · 成功 ${report.acceptedQuestionCount} · " +
                             "失败 ${report.rejectedQuestionCount} · 非题目 ${report.nonQuestionCount} · " +
-                            "不支持 ${report.unsupportedCount}",
+                            "不支持 ${report.unsupportedCount}" +
+                            (if (report.duplicateQuestionCount > 0) " · 重复 ${report.duplicateQuestionCount}" else ""),
                         modifier = Modifier.padding(top = 8.dp),
                     )
                     Text(

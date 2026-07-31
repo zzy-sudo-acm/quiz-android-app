@@ -59,6 +59,7 @@ class ImportUiStateTest {
                 rejectedQuestionCount = rejectedCount,
                 nonQuestionCount = 0,
                 unsupportedCount = 0,
+                duplicateQuestionCount = 0,
                 imageCount = 0,
                 tableCount = 0,
                 usedApi = false,

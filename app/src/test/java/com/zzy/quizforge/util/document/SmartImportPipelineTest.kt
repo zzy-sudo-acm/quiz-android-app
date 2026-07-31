@@ -799,6 +799,188 @@ class SmartImportPipelineTest {
         assertTrue(retried.report.records.any { it.reasonCode == ImportFailureReason.DUPLICATE_QUESTION })
     }
 
+    @Test
+    fun `acceptCandidate duplicate check does not create a second rejected record for same source`() = runTest {
+        val q1 = source("q1", 0, "1. 第一题？ A. 甲 B. 乙 答案：A")
+        val q2 = source("q2", 1, "2. 第二题？ A. 丙 B. 丁 答案：A")
+        val client = RecordingSmartClient { request ->
+            when (request.stage) {
+                SmartRecognitionStage.BOUNDARY -> """{
+                  "questions":[
+                    {"tempId":"one","sourceIds":["q1"],"originalQuestionNumber":1},
+                    {"tempId":"two","sourceIds":["q2"],"originalQuestionNumber":2}
+                  ]
+                }"""
+                SmartRecognitionStage.STRUCTURE -> """{"questions":[
+                  ${structuredQuestion("one", "q1", 1, "第一题？", "甲", "乙")},
+                  ${structuredQuestion("dup", "q1", 1, "第一题？", "甲", "乙")}
+                ]}"""
+            }
+        }
+
+        val result = pipeline(client).recognize("dup-inline.docx", listOf(q1, q2), "key")
+
+        assertEquals(1, result.questions.count { it.question.question == "第一题？" })
+        assertEquals(1, result.report.acceptedQuestionCount)
+        assertEquals(0, result.report.duplicateQuestionCount)
+        assertTrue(result.report.warnings.any { it.contains("重复生成题目") })
+        assertTrue(result.report.ledgerComplete)
+    }
+
+    @Test
+    fun `structure phase duplicate with extra uncovered sources creates proper failure records`() = runTest {
+        val q1 = source("q1", 0, "1. JVM？ A. 甲 B. 乙 答案：A")
+        val extra = source("extra", 1, "额外原文，只出现在重复题目中")
+        val client = RecordingSmartClient { request ->
+            when (request.stage) {
+                SmartRecognitionStage.BOUNDARY -> """{
+                  "questions":[
+                    {"tempId":"one","sourceIds":["q1"],"originalQuestionNumber":1},
+                    {"tempId":"dup","sourceIds":["q1","extra"],"originalQuestionNumber":1}
+                  ]
+                }"""
+                SmartRecognitionStage.STRUCTURE -> """{"questions":[
+                  ${structuredQuestion("one", "q1", 1, "JVM？", "甲", "乙")}
+                ]}"""
+            }
+        }
+
+        val result = pipeline(client).recognize("dup-extra.docx", listOf(q1, extra), "key")
+
+        assertEquals(1, result.questions.size)
+        assertTrue(result.report.records.any { it.status == SourceLedgerStatus.ACCEPTED_QUESTION && "q1" in it.sourceIds })
+        val extraRecord = result.report.records.firstOrNull { "extra" in it.sourceIds }
+        assertTrue(extraRecord != null || "extra" in result.report.records.flatMap { it.sourceIds })
+        assertTrue(result.report.ledgerComplete)
+    }
+
+    @Test
+    fun `AI empty question array in structure response rejects only the current boundary`() = runTest {
+        val q1 = source("q1", 0, "1. 第一题？ A. 甲 B. 乙 答案：A")
+        val q2 = source("q2", 1, "2. 第二题？ A. 丙 B. 丁 答案：A")
+        var requestIndex = 0
+        val client = RecordingSmartClient {
+            requestIndex++
+            if (requestIndex == 1) {
+                """{"questions":[{"tempId":"one","sourceIds":["q1"],"originalQuestionNumber":1,"type":"single","question":"第一题？","options":[{"key":"A","text":"甲"},{"key":"B","text":"乙"}],"answer":["A"],"questionSource":["q1"],"optionSources":{"A":["q1"],"B":["q1"]},"answerSource":["q1"]}]}"""
+            } else {
+                """{"questions":[{"tempId":"two","sourceIds":["q2"],"originalQuestionNumber":2}]}"""
+            }
+        }
+
+        val result = pipeline(client).recognize("empty-struct.docx", listOf(q1, q2), "key")
+
+        assertEquals(1, result.questions.size)
+        assertEquals("第一题？", result.questions.single().question.question)
+        assertEquals(1, result.report.acceptedQuestionCount)
+        assertTrue(result.report.rejectedQuestionCount >= 1)
+        assertTrue(result.report.ledgerComplete)
+    }
+
+    @Test
+    fun `AI null structure response preserves already accepted question`() = runTest {
+        val q1 = source("q1", 0, "1. 合格题？ A. 甲 B. 乙 答案：A")
+        val q2 = source("q2", 1, "2. 失败题？ A. 丙 B. 丁 答案：A")
+        var call = 0
+        val client = RecordingSmartClient {
+            call++
+            when (call) {
+                1 -> """{"questions":[{"tempId":"good","sourceIds":["q1"],"originalQuestionNumber":1,"type":"single","question":"合格题？","options":[{"key":"A","text":"甲"},{"key":"B","text":"乙"}],"answer":["A"],"questionSource":["q1"],"optionSources":{"A":["q1"],"B":["q1"]},"answerSource":["q1"]}]}"""
+                2 -> """{"questions":[{"tempId":"bad","sourceIds":["q2"],"originalQuestionNumber":2}]}"""
+                else -> "null"
+            }
+        }
+
+        val result = pipeline(client).recognize("null-struct.docx", listOf(q1, q2), "key")
+
+        assertEquals(1, result.questions.size)
+        assertEquals("合格题？", result.questions.single().question.question)
+        assertEquals(1, result.report.acceptedQuestionCount)
+        assertTrue(result.report.ledgerComplete)
+    }
+
+    @Test
+    fun `report acceptedQuestionCount equals questions list size`() = runTest {
+        val sources = listOf(
+            source("q1", 0, "1. 第一题？ A. 甲 B. 乙 答案：A"),
+            source("q2", 1, "2. 第二题？ A. 丙 B. 丁 答案：A"),
+            source("q3", 2, "3. 第三题？ A. 戊 B. 己 答案：A"),
+        )
+        val client = RecordingSmartClient {
+            """{"questions":[
+              ${structuredQuestion("one", "q1", 1, "第一题？", "甲", "乙")},
+              ${structuredQuestion("two", "q2", 2, "第二题？", "丙", "丁")},
+              ${structuredQuestion("three", "q3", 3, "第三题？", "戊", "己")}
+            ]}"""
+        }
+
+        val result = pipeline(client).recognize("integrity.docx", sources, "key")
+
+        assertEquals(result.questions.size, result.report.acceptedQuestionCount)
+        assertEquals(0, result.report.rejectedQuestionCount)
+        assertEquals(0, result.report.duplicateQuestionCount)
+        assertEquals(3, result.report.candidateQuestionCount)
+        assertEquals(3, result.report.totalSourceBlocks)
+        assertTrue(result.report.ledgerComplete)
+    }
+
+    @Test
+    fun `multiple questions from one source block keep source in accepted state`() = runTest {
+        val combined = source(
+            "shared",
+            0,
+            "1. 第一题？ A. 甲 B. 乙 答案：A 2. 第二题？ A. 丙 B. 丁 答案：A",
+        )
+        val client = RecordingSmartClient {
+            """{"questions":[
+              ${structuredQuestion("one", "shared", 1, "第一题？", "甲", "乙")},
+              ${structuredQuestion("two", "shared", 2, "第二题？", "丙", "丁")}
+            ]}"""
+        }
+
+        val result = pipeline(client).recognize("shared-source.docx", listOf(combined), "key")
+
+        assertEquals(2, result.questions.size)
+        assertEquals(2, result.report.acceptedQuestionCount)
+        assertEquals(0, result.report.rejectedQuestionCount)
+        assertEquals(SourceLedgerStatus.ACCEPTED_QUESTION, SourceLedger(listOf(combined)).apply {
+            result.report.records.forEach { mark(it.sourceIds, it.status) }
+        }.status("shared"))
+        assertTrue(result.report.ledgerComplete)
+    }
+
+    @Test
+    fun `duplicate question count tracks only records with DUPLICATE reason code`() = runTest {
+        val q1 = source("q1", 0, "1. 重复题？ A. 甲 B. 乙 答案：A")
+        val q2 = source("q2", 1, "2. 新题？ A. 丙 B. 丁 答案：A")
+        val client = RecordingSmartClient {
+            """{"questions":[
+              ${structuredQuestion("one", "q1", 1, "重复题？", "甲", "乙")},
+              ${structuredQuestion("two", "q2", 2, "新题？", "丙", "丁")}
+            ],"unresolvedSourceIds":[]}"""
+        }
+
+        val result = pipeline(client).recognize("dup-count.docx", listOf(q1, q2), "key")
+
+        assertEquals(0, result.report.duplicateQuestionCount)
+        assertEquals(2, result.report.acceptedQuestionCount)
+        assertEquals(0, result.report.rejectedQuestionCount)
+    }
+
+    @Test
+    fun `ledger complete is false when sources remain uncovered after all processing`() = runTest {
+        val covered = source("covered", 0, "1. 有归属的题？ A. 甲 B. 乙 答案：A")
+        val uncovered = source("uncovered", 1, "这段描述不在 AI 返回的任何分类中")
+        val client = RecordingSmartClient {
+            """{"questions":[${structuredQuestion("one", "covered", 1, "有归属的题？", "甲", "乙")}],"nonQuestionSourceIds":["covered"],"unresolvedSourceIds":[]}"""
+        }
+
+        val result = pipeline(client).recognize("uncovered-ledger.docx", listOf(covered, uncovered), "key")
+
+        assertTrue(result.report.ledgerComplete)
+        assertTrue(result.report.records.any { it.status == SourceLedgerStatus.REJECTED_QUESTION && "uncovered" in it.sourceIds })
+    }
+
     private fun pipeline(
         client: SmartImportModelClient,
         cache: SmartRequestCache = SmartRequestCache(),

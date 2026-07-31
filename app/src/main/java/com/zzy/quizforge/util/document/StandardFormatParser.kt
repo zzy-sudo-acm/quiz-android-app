@@ -190,6 +190,7 @@ class StandardFormatParser(
             rejectedQuestionCount = rejected,
             nonQuestionCount = ledger.counts()[SourceLedgerStatus.NON_QUESTION_CONTENT] ?: 0,
             unsupportedCount = ledger.counts()[SourceLedgerStatus.UNSUPPORTED_CONTENT] ?: 0,
+            duplicateQuestionCount = 0,
             imageCount = nonEmpty.sumOf { it.images.size },
             tableCount = nonEmpty.mapNotNull { it.table?.tableSourceId }.distinct().size,
             usedApi = false,
