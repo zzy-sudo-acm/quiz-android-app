@@ -174,22 +174,23 @@ class SmartImportPipeline(
                         failures.putIfAbsent(sourceId, Failure(ImportFailureReason.API_RETURNED_NULL, "模型返回 null", true))
                     }
                     is ModelCall.Success -> {
-                        val parsed = SmartResponseParser.parse(response.raw)
-                        val scopeError = if (parsed.error == null) {
-                            responseScopeError(parsed, responseSourceIds.toSet())
-                        } else null
-                        if (parsed.error != null) {
-                            responseSourceIds.forEach { sourceId ->
-                                failures.putIfAbsent(sourceId, Failure(ImportFailureReason.API_INVALID_JSON, parsed.error, true))
-                            }
-                        } else if (scopeError != null) {
-                            responseSourceIds.forEach { sourceId ->
-                                failures.putIfAbsent(
-                                    sourceId,
-                                    Failure(ImportFailureReason.SOURCE_NOT_COVERED, scopeError, true),
-                                )
-                            }
-                        } else {
+                        try {
+                            val parsed = SmartResponseParser.parse(response.raw)
+                            val scopeError = if (parsed.error == null) {
+                                responseScopeError(parsed, responseSourceIds.toSet())
+                            } else null
+                            if (parsed.error != null) {
+                                responseSourceIds.forEach { sourceId ->
+                                    failures.putIfAbsent(sourceId, Failure(ImportFailureReason.API_INVALID_JSON, parsed.error, true))
+                                }
+                            } else if (scopeError != null) {
+                                responseSourceIds.forEach { sourceId ->
+                                    failures.putIfAbsent(
+                                        sourceId,
+                                        Failure(ImportFailureReason.SOURCE_NOT_COVERED, scopeError, true),
+                                    )
+                                }
+                            } else {
                             val unresolvedIds = parsed.unresolvedSourceIds.toSet()
                             (classifiedSourceIds(parsed) - unresolvedIds).forEach(failures::remove)
                             parsed.nonQuestionSourceIds.filter(sourceById::containsKey).forEach { sourceId ->
@@ -233,7 +234,21 @@ class SmartImportPipeline(
                             parsed.questions.forEach { candidate ->
                                 val key = candidate.identityKey()
                                 val existing = pending[key]
-                                pending[key] = if (existing == null) candidate else existing.merge(candidate)
+                                when {
+                                    existing == null -> pending[key] = candidate
+                                    // Only merge when both sides clearly denote the same question.
+                                    // Distinct questions that collide on the same boundary key must
+                                    // stay separate, otherwise one of them silently disappears.
+                                    existing.sameQuestionAs(candidate) -> pending[key] = existing.merge(candidate)
+                                    else -> {
+                                        var uniqueKey = "$key#conflict-${candidate.tempId}"
+                                        var suffix = 1
+                                        while (pending.containsKey(uniqueKey)) {
+                                            uniqueKey = "$key#conflict-${candidate.tempId}-${suffix++}"
+                                        }
+                                        pending[uniqueKey] = candidate
+                                    }
+                                }
                             }
                             parsed.unresolvedSourceIds.forEach { sourceId ->
                                 if (sourceId in sourceById) {
@@ -245,6 +260,22 @@ class SmartImportPipeline(
                                 }
                             }
                         }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Throwable) {
+                            // A response-level unexpected failure must not abort the whole run:
+                            // sources stay visible in the report and earlier successes survive.
+                            responseSourceIds.forEach { sourceId ->
+                                failures.putIfAbsent(
+                                    sourceId,
+                                    Failure(
+                                        ImportFailureReason.INTERNAL_PROCESSING_ERROR,
+                                        "边界处理内部错误，原文已保留在报告中：${error.message ?: error::class.simpleName}",
+                                        true,
+                                    ),
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -252,104 +283,134 @@ class SmartImportPipeline(
 
         val candidates = pending.values.toList()
         candidates.forEachIndexed { index, boundary ->
-            val direct = boundary.structured?.let {
-                validateAndConvert(
-                    candidate = it,
-                    sourceById = sourceById,
-                    answerSectionIds = answerSectionIds,
-                    allowedSourceIds = boundary.sourceIds.toSet(),
-                )
-            }
-            if (direct is CandidateValidation.Accepted) {
-                acceptCandidate(direct.value, accepted, records, ledger, sourceById, apiAttempted = true)
-                warnings += direct.warnings
-                return@forEachIndexed
-            }
+            try {
+                val direct = boundary.structured?.let {
+                    validateAndConvert(
+                        candidate = it,
+                        sourceById = sourceById,
+                        answerSectionIds = answerSectionIds,
+                        allowedSourceIds = boundary.sourceIds.toSet(),
+                    )
+                }
+                if (direct is CandidateValidation.Accepted) {
+                    acceptCandidate(direct.value, accepted, records, ledger, sourceById, apiAttempted = true)
+                    warnings += direct.warnings
+                    return@forEachIndexed
+                }
 
-            val sourceIds = boundary.sourceIds.filter(sourceById::containsKey).distinct()
-            val contextIds = (sourceIds + answerSectionIds).distinct()
-            val request = SmartModelRequest(
-                stage = SmartRecognitionStage.STRUCTURE,
-                chunkId = "structure-${boundary.tempId.ifBlank { index.toString() }}",
-                sourceBlocks = contextIds.mapNotNull { sourceById[it] }.map(::wholeSlice),
-                candidateSourceIds = sourceIds,
-                answerSectionSourceIds = answerSectionIds.toList(),
-            )
-            onProgress(SmartPipelineProgress(SmartRecognitionStage.STRUCTURE, index + 1, candidates.size, requestCount))
-            val response = call(request, apiKey) { requestCount++ }
-            when (response) {
-                is ModelCall.Failed -> rejectBoundary(boundary, ImportFailureReason.API_REQUEST_FAILED, response.message, records, ledger, sourceById)
-                is ModelCall.Truncated -> rejectBoundary(
+                val sourceIds = boundary.sourceIds.filter(sourceById::containsKey).distinct()
+                val contextIds = (sourceIds + answerSectionIds).distinct()
+                val request = SmartModelRequest(
+                    stage = SmartRecognitionStage.STRUCTURE,
+                    chunkId = "structure-${boundary.tempId.ifBlank { index.toString() }}",
+                    sourceBlocks = contextIds.mapNotNull { sourceById[it] }.map(::wholeSlice),
+                    candidateSourceIds = sourceIds,
+                    answerSectionSourceIds = answerSectionIds.toList(),
+                )
+                onProgress(SmartPipelineProgress(SmartRecognitionStage.STRUCTURE, index + 1, candidates.size, requestCount))
+                val response = call(request, apiKey) { requestCount++ }
+                when (response) {
+                    is ModelCall.Failed -> rejectBoundary(boundary, ImportFailureReason.API_REQUEST_FAILED, response.message, records, ledger, sourceById)
+                    is ModelCall.Truncated -> rejectBoundary(
+                        boundary,
+                        ImportFailureReason.API_RESPONSE_TRUNCATED,
+                        response.message,
+                        records,
+                        ledger,
+                        sourceById,
+                    )
+                    is ModelCall.Null -> rejectBoundary(boundary, ImportFailureReason.API_RETURNED_NULL, "模型返回 null", records, ledger, sourceById)
+                    is ModelCall.Success -> {
+                        val parsed = SmartResponseParser.parse(response.raw)
+                        val scopeError = if (parsed.error == null) {
+                            responseScopeError(
+                                parsed = parsed,
+                                allowedSourceIds = request.sourceBlocks.map { it.sourceId }.toSet(),
+                                requiredCandidateSourceIds = request.candidateSourceIds.toSet(),
+                            )
+                        } else null
+                        if (parsed.error != null) {
+                            rejectBoundary(boundary, ImportFailureReason.API_INVALID_JSON, parsed.error, records, ledger, sourceById)
+                        } else if (scopeError != null) {
+                            rejectBoundary(
+                                boundary,
+                                ImportFailureReason.SOURCE_NOT_COVERED,
+                                scopeError,
+                                records,
+                                ledger,
+                                sourceById,
+                            )
+                        } else if (parsed.questions.isEmpty()) {
+                            rejectBoundary(boundary, ImportFailureReason.API_RETURNED_NULL, "模型没有返回结构化题目", records, ledger, sourceById)
+                        } else {
+                            var acceptedFromResponse = 0
+                            parsed.questions.forEach { item ->
+                                try {
+                                    val structured = item.structured
+                                    if (structured == null) {
+                                        rejectBoundary(item, ImportFailureReason.API_INVALID_JSON, "题目缺少结构化字段", records, ledger, sourceById)
+                                        return@forEach
+                                    }
+                                    when (
+                                        val validated = validateAndConvert(
+                                            candidate = structured,
+                                            sourceById = sourceById,
+                                            answerSectionIds = answerSectionIds,
+                                            allowedSourceIds = request.sourceBlocks.map { it.sourceId }.toSet(),
+                                        )
+                                    ) {
+                                        is CandidateValidation.Accepted -> {
+                                            if (isDuplicate(validated.value, accepted)) {
+                                                rejectBoundary(item, ImportFailureReason.DUPLICATE_QUESTION, "模型重复生成同一道题", records, ledger, sourceById)
+                                            } else {
+                                                acceptCandidate(validated.value, accepted, records, ledger, sourceById, apiAttempted = true)
+                                                warnings += validated.warnings
+                                                acceptedFromResponse++
+                                            }
+                                        }
+                                        is CandidateValidation.Rejected -> rejectBoundary(
+                                            item,
+                                            validated.reason,
+                                            validated.message,
+                                            records,
+                                            ledger,
+                                            sourceById,
+                                        )
+                                    }
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (error: Throwable) {
+                                    // A single unexpected failure must never discard questions that
+                                    // were already accepted earlier in this same response.
+                                    rejectBoundary(
+                                        item,
+                                        ImportFailureReason.INTERNAL_PROCESSING_ERROR,
+                                        "结构化处理内部错误，原文已保留在报告中：${error.message ?: error::class.simpleName}",
+                                        records,
+                                        ledger,
+                                        sourceById,
+                                    )
+                                }
+                            }
+                            if (acceptedFromResponse == 0 && parsed.questions.isEmpty()) {
+                                rejectBoundary(boundary, ImportFailureReason.API_RETURNED_NULL, "模型没有返回可接受题目", records, ledger, sourceById)
+                            }
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                // A single candidate's unexpected internal failure must never wipe out the
+                // questions that were already accepted by earlier candidates.
+                rejectBoundary(
                     boundary,
-                    ImportFailureReason.API_RESPONSE_TRUNCATED,
-                    response.message,
+                    ImportFailureReason.INTERNAL_PROCESSING_ERROR,
+                    "结构化处理内部错误，原文已保留在报告中：${error.message ?: error::class.simpleName}",
                     records,
                     ledger,
                     sourceById,
                 )
-                is ModelCall.Null -> rejectBoundary(boundary, ImportFailureReason.API_RETURNED_NULL, "模型返回 null", records, ledger, sourceById)
-                is ModelCall.Success -> {
-                    val parsed = SmartResponseParser.parse(response.raw)
-                    val scopeError = if (parsed.error == null) {
-                        responseScopeError(
-                            parsed = parsed,
-                            allowedSourceIds = request.sourceBlocks.map { it.sourceId }.toSet(),
-                            requiredCandidateSourceIds = request.candidateSourceIds.toSet(),
-                        )
-                    } else null
-                    if (parsed.error != null) {
-                        rejectBoundary(boundary, ImportFailureReason.API_INVALID_JSON, parsed.error, records, ledger, sourceById)
-                    } else if (scopeError != null) {
-                        rejectBoundary(
-                            boundary,
-                            ImportFailureReason.SOURCE_NOT_COVERED,
-                            scopeError,
-                            records,
-                            ledger,
-                            sourceById,
-                        )
-                    } else if (parsed.questions.isEmpty()) {
-                        rejectBoundary(boundary, ImportFailureReason.API_RETURNED_NULL, "模型没有返回结构化题目", records, ledger, sourceById)
-                    } else {
-                        var acceptedFromResponse = 0
-                        parsed.questions.forEach { item ->
-                            val structured = item.structured
-                            if (structured == null) {
-                                rejectBoundary(item, ImportFailureReason.API_INVALID_JSON, "题目缺少结构化字段", records, ledger, sourceById)
-                                return@forEach
-                            }
-                            when (
-                                val validated = validateAndConvert(
-                                    candidate = structured,
-                                    sourceById = sourceById,
-                                    answerSectionIds = answerSectionIds,
-                                    allowedSourceIds = request.sourceBlocks.map { it.sourceId }.toSet(),
-                                )
-                            ) {
-                                is CandidateValidation.Accepted -> {
-                                    if (isDuplicate(validated.value, accepted)) {
-                                        rejectBoundary(item, ImportFailureReason.DUPLICATE_QUESTION, "模型重复生成同一道题", records, ledger, sourceById)
-                                    } else {
-                                        acceptCandidate(validated.value, accepted, records, ledger, sourceById, apiAttempted = true)
-                                        warnings += validated.warnings
-                                        acceptedFromResponse++
-                                    }
-                                }
-                                is CandidateValidation.Rejected -> rejectBoundary(
-                                    item,
-                                    validated.reason,
-                                    validated.message,
-                                    records,
-                                    ledger,
-                                    sourceById,
-                                )
-                            }
-                        }
-                        if (acceptedFromResponse == 0 && parsed.questions.isEmpty()) {
-                            rejectBoundary(boundary, ImportFailureReason.API_RETURNED_NULL, "模型没有返回可接受题目", records, ledger, sourceById)
-                        }
-                    }
-                }
             }
         }
 
@@ -1082,19 +1143,11 @@ class SmartImportPipeline(
     )
 
     private fun isDuplicate(value: RecognizedQuestion, existing: List<RecognizedQuestion>): Boolean {
-        val key = canonical(value.question)
-        return existing.any { canonical(it.question) == key }
+        val key = QuestionDuplicateKey.canonical(value.question)
+        return existing.any { QuestionDuplicateKey.canonical(it.question) == key }
     }
 
-    private fun canonical(value: QuizQuestion): String = buildString {
-        append(normalize(value.question))
-        value.options.forEach { append('|').append(it.key).append('=').append(normalize(it.text)) }
-    }
-
-    private fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFKC)
-        .replace(Regex("\\s+"), "")
-        .replace('，', ',')
-        .replace('：', ':')
+    private fun normalize(value: String): String = QuestionDuplicateKey.normalize(value)
 
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray())
@@ -1219,6 +1272,24 @@ private data class BoundaryCandidate(
             ?: "temp:$tempId"
         return "$sources#$discriminator"
     }
+
+    /**
+     * Returns true only when both sides unambiguously denote the same question boundary.
+     * When both sides carry a structured question they must be canonically equal; a boundary
+     * mention without a stem merges with anything that shares the same boundary key.
+     * Distinct stems colliding on one key must never merge, or one question silently disappears.
+     */
+    fun sameQuestionAs(other: BoundaryCandidate): Boolean {
+        val mine = structured
+        val theirs = other.structured
+        if (mine != null && theirs != null) {
+            val mineKey = QuestionDuplicateKey.canonical(mine.question, mine.options.map { it.key to it.text })
+            val theirsKey = QuestionDuplicateKey.canonical(theirs.question, theirs.options.map { it.key to it.text })
+            return mineKey == theirsKey
+        }
+        return true
+    }
+
     fun merge(other: BoundaryCandidate): BoundaryCandidate = copy(
         sourceIds = (sourceIds + other.sourceIds).distinct(),
         originalQuestionNumber = originalQuestionNumber ?: other.originalQuestionNumber,

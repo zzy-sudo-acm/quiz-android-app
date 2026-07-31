@@ -95,6 +95,7 @@ enum class ImportFailureReason {
     SOURCE_LEDGER_INCOMPLETE,
     INVALID_QUESTION_TYPE,
     DUPLICATE_OPTION,
+    INTERNAL_PROCESSING_ERROR,
 }
 
 data class QuestionProvenance(
@@ -150,7 +151,20 @@ data class ImportReport(
         require(candidateQuestionCount == acceptedQuestionCount + rejectedQuestionCount) {
             "候选题账本不平衡"
         }
+        require(duplicateQuestionCount <= rejectedQuestionCount) {
+            "重复题数量不能超过失败数量"
+        }
     }
+
+    /**
+     * 被判定为重复的题目数量。重复项属于 [rejectedQuestionCount] 的子集：仍会被拒收、
+     * 保留可追踪记录并计入失败，但可单独统计展示。
+     */
+    val duplicateQuestionCount: Int
+        get() = records.count {
+            it.status == SourceLedgerStatus.REJECTED_QUESTION &&
+                it.reasonCode == ImportFailureReason.DUPLICATE_QUESTION
+        }
 
     val hasUncertainContent: Boolean
         get() = rejectedQuestionCount > 0 || unsupportedCount > 0 || !ledgerComplete

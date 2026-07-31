@@ -227,8 +227,8 @@ fun ImportScreen(
                     Text("导入报告", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(
                         "候选 ${report.candidateQuestionCount} · 成功 ${report.acceptedQuestionCount} · " +
-                            "失败 ${report.rejectedQuestionCount} · 非题目 ${report.nonQuestionCount} · " +
-                            "不支持 ${report.unsupportedCount}",
+                            "失败 ${report.rejectedQuestionCount} · 重复 ${report.duplicateQuestionCount} · " +
+                            "非题目 ${report.nonQuestionCount} · 不支持 ${report.unsupportedCount}",
                         modifier = Modifier.padding(top = 8.dp),
                     )
                     Text(

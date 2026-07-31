@@ -327,9 +327,12 @@ class ImportViewModel(
     private fun ImportRecognitionResult.summaryText(): String {
         val report = report
         return if (report.hasUncertainContent) {
-            "成功识别 ${report.acceptedQuestionCount} 道，另有 ${report.rejectedQuestionCount} 段无法确认；请查看导入报告"
+            "成功识别 ${report.acceptedQuestionCount} 道，另有 ${report.rejectedQuestionCount} 段无法确认" +
+                (if (report.duplicateQuestionCount > 0) "（含 ${report.duplicateQuestionCount} 道重复）" else "") +
+                "；请查看导入报告"
         } else {
-            "预检完成：成功识别 ${report.acceptedQuestionCount} 道"
+            "预检完成：成功识别 ${report.acceptedQuestionCount} 道" +
+                (if (report.duplicateQuestionCount > 0) "（跳过 ${report.duplicateQuestionCount} 道重复）" else "")
         }
     }
 }

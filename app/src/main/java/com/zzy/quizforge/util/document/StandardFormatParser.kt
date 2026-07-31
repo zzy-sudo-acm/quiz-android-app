@@ -48,16 +48,32 @@ class StandardFormatParser(
             current = null
             val finalized = builder.finish(byId)
             if (finalized.question != null && finalized.provenance != null) {
-                val index = recognized.size
-                recognized += RecognizedQuestion(finalized.question, finalized.provenance, builder.number)
-                ledger.mark(builder.sourceIds, SourceLedgerStatus.ACCEPTED_QUESTION)
-                records += ImportReportRecord(
-                    sourceIds = builder.sourceIds.toList(),
-                    originalQuestionNumber = builder.number,
-                    rawText = builder.rawText(byId),
-                    status = SourceLedgerStatus.ACCEPTED_QUESTION,
-                    createdQuestionIndexes = listOf(index),
-                )
+                val key = QuestionDuplicateKey.canonical(finalized.question)
+                val duplicate = recognized.any { QuestionDuplicateKey.canonical(it.question) == key }
+                if (duplicate) {
+                    // Never silently import the same question twice; the later copy stays visible
+                    // in the report and is counted as a duplicate.
+                    ledger.mark(builder.sourceIds, SourceLedgerStatus.REJECTED_QUESTION)
+                    records += ImportReportRecord(
+                        sourceIds = builder.sourceIds.toList(),
+                        originalQuestionNumber = builder.number,
+                        rawText = builder.rawText(byId),
+                        status = SourceLedgerStatus.REJECTED_QUESTION,
+                        reasonCode = ImportFailureReason.DUPLICATE_QUESTION,
+                        reasonMessage = "与已识别题目完全重复，已跳过该重复项",
+                    )
+                } else {
+                    val index = recognized.size
+                    recognized += RecognizedQuestion(finalized.question, finalized.provenance, builder.number)
+                    ledger.mark(builder.sourceIds, SourceLedgerStatus.ACCEPTED_QUESTION)
+                    records += ImportReportRecord(
+                        sourceIds = builder.sourceIds.toList(),
+                        originalQuestionNumber = builder.number,
+                        rawText = builder.rawText(byId),
+                        status = SourceLedgerStatus.ACCEPTED_QUESTION,
+                        createdQuestionIndexes = listOf(index),
+                    )
+                }
             } else {
                 val reason = finalized.reason ?: ImportFailureReason.SOURCE_NOT_COVERED
                 ledger.mark(builder.sourceIds, SourceLedgerStatus.REJECTED_QUESTION)
